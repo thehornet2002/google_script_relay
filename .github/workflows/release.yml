@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       tag_name:
-        description: 'Release tag name (e.g. v1.0.0)'
+        description: 'Release tag name (e.g. v1.0.1)'
         required: false
-        default: 'v1.0.0'
+        default: 'v1.0.1'
 
 permissions:
   contents: write
@@ -55,13 +55,14 @@ jobs:
         shell: bash
         run: |
           cd dist/windows-gui
-          7z a -tzip ../../relay-gui-windows-amd64.zip ./*
+          7z a -tzip "$GITHUB_WORKSPACE/relay-gui-windows-amd64.zip" ./*
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: relay-gui-windows-amd64
           path: relay-gui-windows-amd64.zip
+          if-no-files-found: error
 
   build-cross-gui:
     name: Build Desktop GUI for Linux & macOS
@@ -69,14 +70,14 @@ jobs:
     strategy:
       matrix:
         include:
-          # Linux GUI
+          # Linux Desktop GUI
           - os: linux
             arch: amd64
             name: relay-gui-linux-amd64
           - os: linux
             arch: arm64
             name: relay-gui-linux-arm64
-          # macOS GUI
+          # macOS Desktop GUI
           - os: darwin
             arch: amd64
             name: relay-gui-darwin-amd64
@@ -110,13 +111,15 @@ jobs:
             cp relay-gui.desktop package_dir/ 2>/dev/null || true
           fi
 
-          cd package_dir && tar -czvf "../../${{ matrix.name }}.tar.gz" ./* && cd ..
+          tar -czvf "$GITHUB_WORKSPACE/${{ matrix.name }}.tar.gz" -C package_dir .
+          rm -rf package_dir
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.name }}
-          path: '*.tar.gz'
+          path: ${{ matrix.name }}.tar.gz
+          if-no-files-found: error
 
   build-cross-cli-server:
     name: Build CLI & Server Targets
@@ -192,18 +195,20 @@ jobs:
           fi
 
           if [ "${{ matrix.os }}" = "windows" ]; then
-            cd package_dir && zip -r "../../${{ matrix.name }}.zip" ./* && cd ..
+            (cd package_dir && zip -r "$GITHUB_WORKSPACE/${{ matrix.name }}.zip" ./*)
           else
-            cd package_dir && tar -czvf "../../${{ matrix.name }}.tar.gz" ./* && cd ..
+            tar -czvf "$GITHUB_WORKSPACE/${{ matrix.name }}.tar.gz" -C package_dir .
           fi
+          rm -rf package_dir
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.name }}
           path: |
-            *.zip
-            *.tar.gz
+            ${{ matrix.name }}.zip
+            ${{ matrix.name }}.tar.gz
+          if-no-files-found: error
 
   release:
     name: Publish GitHub Release
@@ -218,6 +223,10 @@ jobs:
         with:
           path: release_assets
           merge-multiple: true
+
+      - name: List downloaded artifacts
+        run: |
+          ls -la release_assets/
 
       - name: Generate SHA-256 Checksums
         run: |
