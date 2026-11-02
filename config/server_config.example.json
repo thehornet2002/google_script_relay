@@ -1,0 +1,11 @@
+{
+  "mode": "server",
+  "listen_addr": "0.0.0.0:8888",
+  "target_addr": "127.0.0.1:10001",
+  "token": "your-secret-token",
+  "server_tuning": {
+    "wait_timeout_ms": 800,
+    "max_drain_batch_bytes": 131072,
+    "downlink_queue_cap": 256
+  }
+}

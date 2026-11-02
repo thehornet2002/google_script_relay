@@ -1,0 +1,193 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Release tag name (e.g. v1.0.0)'
+        required: false
+        default: 'v1.0.0'
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows-gui:
+    name: Build Windows GUI (amd64)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          check-latest: true
+
+      - name: Compile Windows resource manifest (Common Controls v6)
+        shell: bash
+        run: |
+          windres -i cmd/gui/app.rc -O coff -o cmd/gui/rsrc_windows_amd64.syso
+
+      - name: Build relay-gui.exe
+        shell: bash
+        run: |
+          go build -ldflags="-H=windowsgui -s -w" -o dist/windows-gui/relay-gui.exe ./cmd/gui
+
+      - name: Download official Xray-core for Windows
+        shell: bash
+        run: |
+          mkdir -p dist/windows-gui/bin
+          mkdir -p dist/windows-gui/config
+          curl -sL "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-windows-64.zip" -o xray.zip
+          unzip -q xray.zip xray.exe -d dist/windows-gui/bin/
+          rm xray.zip
+          cp config/client_config.example.json dist/windows-gui/client_config.json
+          cp config/xray_client.json dist/windows-gui/config/
+          cp README.md dist/windows-gui/
+          cp LICENSE dist/windows-gui/
+
+      - name: Package Windows GUI Zip
+        shell: bash
+        run: |
+          cd dist/windows-gui
+          7z a -tzip ../../relay-gui-windows-amd64.zip ./*
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: relay-gui-windows-amd64
+          path: relay-gui-windows-amd64.zip
+
+  build-cross-platforms:
+    name: Build CLI & Server Targets
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          # Linux
+          - os: linux
+            arch: amd64
+            name: relay-linux-amd64
+            is_server: true
+          - os: linux
+            arch: arm64
+            name: relay-linux-arm64
+            is_server: true
+          - os: linux
+            arch: arm
+            arm: 7
+            name: relay-linux-armv7
+            is_server: true
+          # Windows CLI
+          - os: windows
+            arch: amd64
+            name: relay-cli-windows-amd64
+            is_server: false
+            ext: .exe
+          - os: windows
+            arch: arm64
+            name: relay-cli-windows-arm64
+            is_server: false
+            ext: .exe
+          # macOS CLI
+          - os: darwin
+            arch: amd64
+            name: relay-cli-darwin-amd64
+            is_server: false
+          - os: darwin
+            arch: arm64
+            name: relay-cli-darwin-arm64
+            is_server: false
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          check-latest: true
+
+      - name: Build Binary
+        env:
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+          GOARM: ${{ matrix.arm }}
+          CGO_ENABLED: 0
+        run: |
+          OUTPUT_NAME="relay"
+          if [ "${{ matrix.os }}" = "windows" ]; then
+            OUTPUT_NAME="${OUTPUT_NAME}.exe"
+          fi
+          mkdir -p package_dir/config
+          go build -ldflags="-s -w" -o "package_dir/${OUTPUT_NAME}" ./cmd/relay
+
+          cp config/*.example.json package_dir/config/
+          cp config/xray_*.json package_dir/config/ 2>/dev/null || true
+          cp README.md package_dir/
+          cp LICENSE package_dir/
+
+          if [ "${{ matrix.is_server }}" = "true" ]; then
+            cp relay.service package_dir/ 2>/dev/null || true
+          fi
+
+          if [ "${{ matrix.os }}" = "windows" ]; then
+            cd package_dir && zip -r "../../${{ matrix.name }}.zip" ./* && cd ..
+          else
+            cd package_dir && tar -czvf "../../${{ matrix.name }}.tar.gz" ./* && cd ..
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: |
+            *.zip
+            *.tar.gz
+
+  release:
+    name: Publish GitHub Release
+    needs: [build-windows-gui, build-cross-platforms]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release_assets
+          merge-multiple: true
+
+      - name: Generate SHA-256 Checksums
+        run: |
+          cd release_assets
+          sha256sum * > sha256sums.txt
+          cat sha256sums.txt
+
+      - name: Determine Tag
+        id: tag_info
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ github.event.inputs.tag_name }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag_info.outputs.tag }}
+          name: Release ${{ steps.tag_info.outputs.tag }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            release_assets/*.zip
+            release_assets/*.tar.gz
+            release_assets/sha256sums.txt

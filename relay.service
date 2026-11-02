@@ -1,0 +1,15 @@
+[Unit]
+Description=Xray Google Apps Script Relay Server
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/google_script
+ExecStart=/root/google_script/relay-linux-amd64 -mode server -config /root/google_script/server_config.json
+Restart=always
+RestartSec=3
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

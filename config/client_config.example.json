@@ -1,0 +1,28 @@
+{
+  "mode": "client",
+  "listen_addr": "127.0.0.1:10800",
+  "gas_urls": [
+    "https://script.google.com/macros/s/AKfycb...EXAMPLE_1/exec",
+    "https://script.google.com/macros/s/AKfycb...EXAMPLE_2/exec"
+  ],
+  "token": "your-secret-token",
+  "front_domain": "fcm.googleapis.com",
+  "front_ip": "",
+  "client_tuning": {
+    "workers": 2,
+    "worker_stagger_ms": 200,
+    "downlink_fast_poll_ms": 5,
+    "downlink_max_idle_ms": 600,
+    "mux_concurrency": 8,
+    "socket_buffer_kb": 64,
+    "uplink_chunk_kb": 32
+  },
+  "server_tuning": {
+    "wait_timeout_ms": 800,
+    "max_drain_batch_bytes": 131072,
+    "downlink_queue_cap": 256
+  },
+  "socks_port": 10808,
+  "http_port": 10809,
+  "start_xray": true
+}

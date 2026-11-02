@@ -1,0 +1,35 @@
+# Compiled Binaries & Build Output
+*.exe
+*.exe~
+relay-*
+bin/xray
+bin/xray.exe
+*.syso
+*.o
+*.a
+
+# Archives & Releases
+*.zip
+*.tar.gz
+dist/
+release/
+
+# Sensitive Runtime Configurations (contains personal tokens & Google Script deployment IDs)
+client_config.json
+server_config.json
+config/client_config.json
+config/server_config.json
+
+# Temporary / Scratch Files
+test_*.go
+check_summary.go
+*.tmp
+*.log
+
+# OS & IDE Files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+.kilo/
+*.swp
