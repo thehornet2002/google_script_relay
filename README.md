@@ -1,211 +1,232 @@
-# Xray Google Script Relay - Modern Native Desktop & AI Optimizer
+<div align="center">
 
-یک پلتفرم کامل و کامپایل‌شده برای دور زدن فیلترینگ شدید و اینترنت ملی از طریق **Google Apps Script** و **Domain Fronting گوگل (FCM / Google Push)**، همراه با هسته داخلی **Xray Core**، رابط کاربری نیتیو و مدرن تب‌بندی شده (Dark Mode)، و **موتور بهینه‌سازی ماتریسی دومرحله‌ای (Two-Stage AI Optimizer)** بدون هیچ‌گونه نیاز به وب یا مرورگر.
+# ⚡ Xray Google Script Relay (XGSR)
 
-```
-+-------------------------------------------------------------------------------------------------+
-|                                    WINDOWS CLIENT (PC)                                          |
-|                                                                                                 |
-|  [Applications / Browser] ---> (10808 SOCKS5 / 10809 HTTP) ---> [Embedded Xray Core]           |
-|                                                                        |                        |
-|                                                                     (10800 TCP)                 |
-|                                                                        v                        |
-|                                                             [Go Relay Client Engine]            |
-|                                                             - Multi-Account Pool & Balancing    |
-|                                                             - Dual Pipelined Sliding Window     |
-|                                                             - Domain Fronting (fcm.googleapis)  |
-+-------------------------------------------------------------------------------------------------+
-                                                  |
-                                         (HTTPS / HTTP/2)
-                                                  v
-+-------------------------------------------------------------------------------------------------+
-|                                      GOOGLE APPS SCRIPT                                         |
-|                               (script.google.com / GFE Anycast)                                 |
-+-------------------------------------------------------------------------------------------------+
-                                                  |
-                                         (HTTP / Remote Admin)
-                                                  v
-+-------------------------------------------------------------------------------------------------+
-|                                       LINUX VPS SERVER                                          |
-|                                                                                                 |
-|  [Go Relay Server Engine (8888)]                                                                |
-|  - Dynamic Remote Tuning Engine (__admin__)                                                     |
-|  - High-Precision Nanosecond Ping Echo (__ping__)                                               |
-|  - In-Memory 4MB Streaming Test Generator (__bench_4mb__) with CRC32 Checksum                   |
-|  - Auto-Configuring & Self-Running Inbound on 10001 (VLESS/TCP)                                 |
-|                         |                                                                       |
-|                      (10001 TCP)                                                                |
-|                         v                                                                       |
-|              [VPS Xray Inbound (VLESS)]                                                         |
-+-------------------------------------------------------------------------------------------------+
-```
+**پلتفرم قدرتمند ضد فیلترینگ با دامین فرانتینگ گوگل، هسته داخلی Xray و بهینه‌ساز خودکار ماتریسی**  
+*High-Performance Anti-Censorship Relay via Google Apps Script & FCM Domain Fronting*
+
+[![GitHub Release](https://img.shields.io/github/v/release/thehornet2002/google_script_relay?style=for-the-badge&color=blue)](https://github.com/thehornet2002/google_script_relay/releases)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/thehornet2002/google_script_relay?style=for-the-badge&color=00ADD8)](https://go.dev/)
+[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-informational?style=for-the-badge)](https://github.com/thehornet2002/google_script_relay/releases)
+[![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
+
+[**دانلود آخرین نسخه (Releases)**](https://github.com/thehornet2002/google_script_relay/releases/latest) • [**راهنمای راه‌اندازی سریع**](#-راهنمای-راه‌اندازی-در-۳-گام) • [**معماری شبکه**](#-معماری-سیستم) • [**English Overview**](#-english-overview)
 
 ---
 
-## قابلیت‌های رابط کاربری نیتیو جدید (`relay-gui.exe`)
+</div>
 
-رابط کاربری ویندوز با فعال‌سازی **Windows Common Controls v6**، پشتیبانی از **High-DPI** و تم تیره عمیق سیستم‌عامل (`DWMWA_USE_IMMERSIVE_DARK_MODE` با گوشه‌های گرد ویندوز ۱۱) به صورت ۵ تب تفکیک‌شده بازطراحی شده است:
-
-### تب ۱: 🚀 داشبورد و کنترل اصلی (Dashboard & Control)
-- **نشانگر وضعیت زنده اتصال:** نمایش وضعیت آنلاین/آفلاین با رنگ مشخص.
-- **اطلاعات پورت‌های لوکال:** نمایش سریع پورت‌های `10808` (SOCKS5) و `10809` (HTTP).
-- **کارت‌های متریک سه‌گانه:** نمایش لحظه‌ای پینگ میانه، سرعت دانلود پایدار و تعداد اکانت‌های استخر.
-- **دکمه‌های اقدام سریع:**
-  - `[ ▶ Start Relay + Xray ]`: شروع یکپارچه رله و هسته داخلی Xray.
-  - `[ ⏹ Stop Relay ]`: متوقف کردن کامل ارتباط.
-  - `[ 🛡 Windows Proxy: ON/OFF ]`: فعال‌سازی مستقیم پروکسی روی کل سیستم‌عامل ویندوز با یک کلیک.
-  - `[ 💾 Save Config ]`: ذخیره کانفیگ در فایل `client_config.json`.
-- **کادر مانیتورینگ زنده سلامت استخر گوگل اسکریپت:** نمایش لحظه‌ای تعداد درخواست‌های جاری، ارورها و وضعیت تک‌تک اکانت‌ها.
-
-### تب ۲: ⚡ آزمایشگاه بهینه‌سازی عمیق ماتریسی (AI Matrix Test Lab)
-- **انتخاب استراتژی شبکه با یک کلیک:**
-  - **1. Best Ping:** اولویت حداقل تأخیر میانه، حذف کامل Jitter و صفر شدن پاکت لاس (مناسب گیمینگ، صوتی/تصویری و وب‌گردی فوری).
-  - **2. Best Speed:** اولویت حداکثر پهنای باند و سرعت دانلود پایدار (مناسب یوتیوب 4K و دانلود فایل‌های حجیم).
-  - **3. Balanced:** تعادل بهینه میان پینگ و سرعت دانلود با الگوریتم BDP.
-- **تست فوق‌العاده قوی دو مرحله‌ای (Two-Stage Coarse-to-Fine Search):**
-  - **فاز ۱ (غربالگری کلی):** ارزیابی ۶ معماری مختلف در فضای پارامترها (ورکر‌های موازی، بافر درین، نگه‌داشت لانگ‌پول).
-  - **فاز ۲ (تیونینگ ریز):** اعمال تغییرات ظریف و میکرومتری حول محور کاندیدای برتر فاز ۱ برای دستیابی به بالاترین امتیاز ممکن.
-- **تست‌های سریع مستقل:**
-  - `[ 📶 Ping Test ]`: ارسال ۲ پروب Warmup + ۶ پروب زمان‌بندی‌شده نانوثانیه مستقیم به سرور VPS.
-  - `[ 📥 4MB Download Test ]`: استریم مستقیم فایل ۴ مگابایتی از رم سرور VPS از داخل تونل همراه با نوار پیشرفت زنده (`msctls_progress32`) و اعتبارسنجی تمامیت `CRC32`.
-- **دکمه `[ 💾 Apply & Lock ]`:** اعمال خودکار بهترین تنظیمات پیدا شده بر روی کلاینت و ذخیره دائمی آن روی سرور VPS از داخل تونل.
-
-### تب ۳: 🌐 استخر اکانت‌های گوگل اسکریپت (Accounts & Security)
-- کادر متنی چندخطی برای وارد کردن آسان چندین آدرس وب‌اپ گوگل اسکریپت.
-- فیلد توکن احراز هویت مشترک (`Auth Token`).
-- فیلد SNI دامین فرانتینگ (`fcm.googleapis.com` یا `play.google.com`).
-- دکمه تست و عیب‌یابی تک‌تک اکانت‌ها.
-
-### تب ۴: ⚙️ پیچ‌های تنظیمات پیشرفته (Advanced Dials)
-- دسترسی مستقیم به مقادیر ورکر‌های موازی، تأخیر استریم سریع، سقف بیکاری، و مالتی‌پلکسینگ Mux.
-- کنترل از راه دور سرور VPS بدون نیاز به SSH با دکمه‌های `Fetch VPS Config` و `Push to VPS`.
-
-### تب ۵: 📜 رویدادها و لاگ‌های زنده (Live Event Logs)
-- نمایشگر کامل تمام وقایع، تغییرات استخر و اتصال‌ها با امکان پاکسازی.
+## 📖 فهرست مطالب
+- [معماری سیستم](#-معماری-سیستم)
+- [ویژگی‌های کلیدی](#-ویژگی‌های-کلیدی)
+- [راهنمای راه‌اندازی در ۳ گام](#-راهنمای-راه‌اندازی-در-۳-گام)
+  - [گام ۱: راه‌اندازی سرور VPS](#گام-۱-راه‌اندازی-سرور-vps)
+  - [گام ۲: ایجاد اسکریپت رله در Google Apps Script](#گام-۲-ایجاد-اسکریپت-رله-در-google-apps-script)
+  - [گام ۳: اجرای کلاینت (ویندوز، لینوکس یا مک)](#گام-۳-اجرای-کلاینت-ویندوز-لینوکس-یا-مک)
+- [آزمایشگاه بهینه‌سازی دوسطحی ماتریسی (AI Optimizer)](#-آزمایشگاه-بهینه‌سازی-دوسطحی-ماتریسی-ai-optimizer)
+- [جدول بسته‌های دانلودی (Release Assets)](#-جدول-بسته‌های-دانلودی-release-assets)
+- [رفع اشکال و سوالات متداول (FAQ)](#-رفع-اشکال-و-سوالات-متداول-faq)
+- [English Overview](#-english-overview)
 
 ---
 
-## فایل‌های کامپایل شده آماده در پروژه
+## 🏗 معماری سیستم
 
-- **`relay-gui.exe`**: برنامه کامل نیتیو ویندوز با اینترفیس تب‌بندی شده و موتور بهینه‌سازی دوسطحی.
-- **`relay-cli.exe`**: نسخه خط فرمان برای تست‌های سریع و اسکریپت‌نویسی (`-mode auto-tune` یا `-mode bench-ping`).
-- **`relay-linux-amd64`**: سرور لینوکس با قابلیت پاسخگویی به پروب‌های نانوثانیه و مولد فایل ۴ مگابایتی.
-- **`bin/xray.exe`**: هسته رسمی Xray-core برای اجرای اتوماتیک بدون نیاز به v2rayN.
+این سیستم ترافیک پروکسی را در قالب درخواست‌های امن HTTPS به زیرساخت ابری **Google Front-End (GFE)** ارسال می‌کند. سیستم فیلترینگ تنها ارتباط کلاینت با سرورهای نوتیفیکیشن اندروید (`fcm.googleapis.com` یا `www.google.com`) را مشاهده می‌کند و به دلیل حضور دامنه‌های حیاتی گوگل در لیست سفید (Too Big to Block)، اتصال حتی در زمان قطع سراسری اینترنت و اینترنت ملی پایدار می‌ماند:
 
----
-
-## نحوه استفاده و تست
-
-۱. **به‌روزرسانی سرور (فقط یک بار):**
-فایل `relay-linux-amd64` را به سرور منتقل کرده و سرویس را ری‌استارت کنید:
-```bash
-sudo systemctl restart relay
-sudo systemctl status relay
-```
-
-۲. **اجرا در ویندوز:**
-- روی **`relay-gui.exe`** دابل‌کلیک کنید.
-- در تب اول دکمه سبز **Start Relay + Xray** را بزنید.
-- به تب دوم (**⚡ AI Matrix Test Lab**) بروید، پروفایل دلخواه (Ping یا Speed یا Balanced) را انتخاب کنید و دکمه **Run Two-Stage Matrix Optimization** را بزنید تا برنامه با دقت مهندسی بالا بهترین ترکیب را بیابد و خودکار ثبت کند!
-
-```
-+-----------------------------------------------------------------------------------------+
-|                                    WINDOWS CLIENT (PC)                                  |
-|                                                                                         |
-|  [Browser / Apps] ---> (10808 SOCKS5 / 10809 HTTP) ---> [Embedded Xray Core]           |
-|                                                                 |                       |
-|                                                              (10800 TCP)                |
-|                                                                 v                       |
-|                                                      [Go Relay Client Engine]           |
-|                                                      - Multi-Account Pool               |
-|                                                      - Dual Pipelined Sliding Window    |
-|                                                      - Domain Fronting (fcm/google)     |
-+-----------------------------------------------------------------------------------------+
-                                           |
-                                  (HTTPS / HTTP/2)
-                                           v
-+-----------------------------------------------------------------------------------------+
-|                               GOOGLE APPS SCRIPT RELAY                                  |
-|                           (script.google.com / GFE Anycast)                             |
-+-----------------------------------------------------------------------------------------+
-                                           |
-                                  (HTTP / Remote Admin)
-                                           v
-+-----------------------------------------------------------------------------------------+
-|                                    LINUX VPS SERVER                                     |
-|                                                                                         |
-|  [Go Relay Server Engine (8888)]                                                        |
-|  - Dynamic Remote Tuning (__admin__)                                                    |
-|  - Direct 4-Pkt Ping Echo (__ping__)                                                    |
-|  - Direct 4MB Speed Stream Generator (__bench_4mb__)                                    |
-|  - Fast Drain Batching (up to 256KB)                                                    |
-|                   |                                                                     |
-|                (10001 TCP)                                                              |
-|                   v                                                                     |
-|        [VPS Xray Inbound (VLESS)]                                                       |
-+-----------------------------------------------------------------------------------------+
+```text
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│                                   CLIENT DEVICE (PC/Mac/Linux)                         │
+│                                                                                        │
+│  [Browser / Applications] ──(10808 SOCKS5 / 10809 HTTP)──> [Embedded Xray Core]       │
+│                                                                   │ (Local VLESS/TCP)  │
+│                                                                   ▼                    │
+│                                                       [Go Relay Client Engine]         │
+│                                                       ├── Multi-Account Pool & Health  │
+│                                                       ├── Dual Pipelined Sliding-Win   │
+│                                                       └── Domain Fronting (FCM SNI)    │
+└───────────────────────────────────────────────────────────────────┬────────────────────┘
+                                                                    │ (HTTPS / HTTP/2)
+                                                                    ▼
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│                              GOOGLE APPS SCRIPT RELAY POOL                             │
+│                           (script.google.com / GFE Anycast CDN)                        │
+└───────────────────────────────────────────────────────────────────┬────────────────────┘
+                                                                    │ (HTTP Tunnel Forward)
+                                                                    ▼
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│                                      LINUX VPS SERVER                                  │
+│                                                                                        │
+│  [Go Relay Server Engine (:8888)]                                                      │
+│  ├── Remote Admin & Dynamic Parameter Tuning                                           │
+│  ├── High-Precision Nanosecond Ping Echo                                               │
+│  ├── Direct 4MB In-Memory Test Stream (with CRC32)                                     │
+│  └── Self-Configuring & Auto-Starting Xray Core Inbound (127.0.0.1:10001)               │
+│                                           │ (10001 TCP)                                │
+│                                           ▼                                            │
+│                               [VPS Inbound (VLESS/TCP)] ───> [Global Internet]         │
+└────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## ویژگی‌های جدید اضافه شده
+## ✨ ویژگی‌های کلیدی
 
-### ۱. حذف کامل نیاز به ساخت اینباند دستی روی سرور (Self-Configuring Server Xray)
-- سرور `relay-linux-amd64` هنگام اجرا روی VPS، پورت مقصد (`127.0.0.1:10001`) را چک می‌کند:
-  - اگر اینباندی از قبل روی سرور فعال باشد، به آن وصل می‌شود.
-  - اگر هیچ اینباندی وجود نداشته باشد، **به طور کاملاً خودکار فایل کانفیگ استاندارد VLESS را ساخته، هسته Xray سرور را استارت می‌کند و پورت 10001 را آماده استفاده می‌سازد.**
-  - حتی در صورتی که باینری Xray روی سرور لینوکس نصب نباشد، سرور به طور خودکار نسخه رسمی لینوکس را دانلود و راه‌اندازی می‌کند.
-- **نیازی به ساخت هیچ اینباندی در پنل 3X-UI یا فایل‌های سرور نیست!**
+### 🛡️ دور زدن فیلترینگ شدید و اینترنت ملی
+با بهره‌گیری از **Domain Fronting** روی سرورهای گوگل پوش (`fcm.googleapis.com` / `mtalk.google.com`)، درخواست‌ها مانند تبادل نوتیفیکیشن رسمی اندروید رفتار کرده و مسدود نمی‌شوند.
 
-### ۲. حذف کامل نیاز به v2rayN در کلاینت (Embedded Xray Core)
-- برنامه کلاینت `relay-gui.exe` هسته `xray.exe` را به صورت داخلی مدیریت می‌کند.
-- به صورت خودکار پورت‌های اینباند **10808 (SOCKS5)** و **10809 (HTTP)** را باز می‌کند.
-- **دکمه فعال‌سازی مستقیم پروکسی سیستمی ویندوز:** با یک کلیک (دکمه `Windows Proxy: ON`) تمام ترافیک ویندوز و مرورگرها بدون نیاز به هیچ ابزار دیگری به تونل وصل می‌شود.
+### ⚡ هسته داخلی Xray Core (بی‌نیاز از v2rayN یا تنظیمات دستی)
+- کلاینت دارای هسته داخلی `xray.exe` است و پس از کلیک روی استارت، به طور خودکار پورت‌های **SOCKS5 روی `10808`** و **HTTP روی `10809`** را باز می‌کند.
+- **دکمه تک‌کلیکه Windows Proxy:** با یک کلیک پروکسی کل ویندوز و مرورگرها فعال می‌شود.
 
-### ۲. کنترل همه‌جانبه تمامی پارامترها (Client & Server Advanced Dials)
-تمام مقادیر حیاتی کلاینت و سرور به صورت زنده و از طریق پنجره برنامه قابل تغییر هستند:
-- **Workers:** تعداد ورکر‌های موازی پایپ‌لاین دریافت (۱ تا ۴ ورکر همزمان).
-- **FastPoll (ms):** تأخیر استریم هنگام دانلود پرسرعت (۰ تا ۳۰ میلی‌ثانیه).
-- **MaxIdle (ms):** سقف تأخیر در زمان عدم فعالیت برای حفظ سهمیه روزانه گوگل.
-- **Mux:** مقدار مالتی‌پلکسینگ کانکشن‌های Xray (۰، ۴، ۸، ۱۶).
-- **VPS Hold (ms):** مدت زمان باز ماندن کانکشن Long-poll در سرور لینوکس.
-- **VPS Drain (Bytes):** حجم بافر تجمیعی در هر رفت و برگشت (از ۳۲ کیلوبایت تا ۲۵۶ کیلوبایت).
-- **امکان خواندن و تغییر تنظیمات سرور از راه دور:** با دکمه‌های `Fetch VPS Config` و `Push Tuning to VPS` بدون نیاز به SSH می‌توانید تنظیمات سرور را از داخل ویندوز تغییر دهید و ذخیره کنید.
+### 🚀 پنجره لغزان دوکاناله (Dual-Pipelined Sliding Window)
+تونل‌های وب سنتی تک‌مرحله‌ای (Stop-and-Wait) هستند؛ این برنامه با اجرای **دو ورکر همزمان**، شماره‌گذاری سریال پکت‌ها (`Seq`) و بافر مرتب‌سازی، زمان مرده ۱.۵ ثانیه‌ای وب را حذف کرده و سرعت دانلود را **۳ الی ۴ برابر** می‌کند.
 
-### ۳. آزمایشگاه بهینه‌سازی خودکار ماتریسی (AI Matrix Auto-Tuning Lab)
-یک موتور تست و بهینه‌سازی که با جستجوی ماتریسی روی پارامترهای کلاینت و سرور، بهترین تنظیمات را برای وضعیت اینترنت شما پیدا کرده و اعمال می‌کند:
-- **پروفایل ۱: بهترین پینگ (Best Ping):** حداقل تأخیر رفت‌وبرگشت و حداقل Jitter (مناسب برای بازی، چت و وب‌گردی فوق‌سریع).
-- **پروفایل ۲: بهترین سرعت دانلود (Best Download Speed):** حداکثر پهنای باند و انتقال فایل‌های بزرگ (مناسب برای استریم ویدیو، دانلود و یوتیوب).
-- **پروفایل ۳: اعتدال پینگ و سرعت (Balanced):** تعادل بهینه میان سرعت دانلود و تأخیر.
-- **معیار تست کاملاً داخلی (بدون اتکا به سرور خارجی):**
-  - ارسال **۴ بسته پینگ اختصاصی** به سمت سرور VPS و محاسبه میانگین پینگ، حداقل، حداکثر، جیتر و درصد Packet Loss.
-  - دانلود **فایل تستی دقیقاً ۴ مگابایتی** مستقیماً از خودِ سرور VPS برای اندازه‌گیری سرعت واقعی تونل (بر حسب مگابایت بر ثانیه و مگابیت بر ثانیه).
-- **اعمال و ذخیره خودکار:** در پایان تست، بهترین تنظیمات پیدا شده به صورت خودکار روی کلاینت ذخیره شده و از طریق تونل روی سرور VPS نیز اعمال و ذخیره می‌شود.
+### 🤖 آزمایشگاه بهینه‌سازی دوسطحی ماتریسی (AI Optimizer)
+سیستم دارای موتور خودکار ارزیابی پارامترها بر اساس پروب‌های نانوثانیه اختصاصی و دانلود استریم ۴ مگابایتی مستقیم از رم سرور VPS (همراه با چکسام CRC32) است و به صورت خودکار بهترین پیکربندی را هم در کلاینت و هم در سرور ثبت می‌کند.
+
+### 🗂️ استخر چند اکانته و سوییچ خودکار (Failover & Balance)
+با وارد کردن چندین لینک گوگل اسکریپت (هر خط یک اکانت)، ترافیک بر اساس الگوریتم **کمترین درخواست در جریان (Least In-Flight)** تقسیم می‌شود و اگر اکانتی به سقف روزانه گوگل برسد، بدون قطعی به اکانت بعدی سوییچ می‌شود.
+
+### 🖥️ رابط کاربری چندسکویی (ویندوز، لینوکس و مک)
+- **ویندوز:** رابط کاربری مدرن با تم تیره عمیق (Immersive Dark Mode)، فونت Segoe UI، کنترل‌های تب‌بندی شده و مانیفست Windows Common Controls v6.
+- **لینوکس:** نسخه دسکتاپ مستقل با شورتکات رسمی `.desktop` برای محیط‌های گنوم، کی‌دی‌ای و غیره.
+- **مک‌او‌اس:** نسخه بهینه‌شده برای هر دو پردازنده Intel و Apple Silicon (M1/M2/M3/M4).
+
+### 🔧 سرور خودپیکربند (Self-Configuring VPS Server)
+سرور لینوکس پورت اینباند `10001` را بررسی می‌کند؛ اگر اینباندی وجود نداشته باشد، **به طور خودکار کانفیگ استاندارد VLESS را ساخته و هسته Xray سرور را استارت می‌کند.** نیازی به نصب پنل یا کانفیگ دستی سرور نیست!
 
 ---
 
-## فایل‌های اجرایی آماده
+## 🚀 راهنمای راه‌اندازی در ۳ گام
 
-- **`relay-gui.exe`**: پنل گرافیکی کامل ویندوز با تمام قابلیت‌ها و ابزار مانیتورینگ زنده.
-- **`relay-cli.exe`**: نسخه خط فرمان با سوییچ‌های `-mode bench-ping`، `-mode bench-speed`، `-mode auto-tune`.
-- **`relay-linux-amd64`**: نسخه سرور لینوکس با قابلیت پاسخگویی به دستورات مدیریتی و تست مستقیم.
-- **`bin/xray.exe`**: هسته رسمی Xray برای کلاینت ویندوز.
+### گام ۱: راه‌اندازی سرور VPS
+
+1. از بخش [Releases](https://github.com/thehornet2002/google_script_relay/releases/latest)، بسته **`relay-server-linux-amd64.tar.gz`** (یا نسخه arm64 برای سرورهای ARM) را دانلود کرده و به سرور منتقل کنید:
+   ```bash
+   mkdir -p /root/google_script
+   cd /root/google_script
+   tar -xzvf relay-server-linux-amd64.tar.gz
+   chmod +x relay
+   ```
+
+2. باز کردن پورت فایروال:
+   ```bash
+   sudo ufw allow 22/tcp
+   sudo ufw allow 8888/tcp
+   sudo ufw enable
+   ```
+
+3. نصب و اجرای سرویس دائمی systemd:
+   ```bash
+   sudo cp relay.service /etc/systemd/system/relay.service
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now relay
+   sudo systemctl status relay
+   ```
+   *(سرور به طور خودکار اینباند Xray روی پورت ۱۰001 را راه‌اندازی می‌کند).*
 
 ---
 
-## نحوه راه‌اندازی و به‌روزرسانی
+### گام ۲: ایجاد اسکریپت رله در Google Apps Script
 
-### ۱. به‌روزرسانی سرور VPS
-فایل `relay-linux-amd64` جدید را به سرور منتقل کرده و سرویس را ری‌استارت کنید:
-```bash
-# در لینوکس سرور:
-chmod +x /root/google_script/relay-linux-amd64
-sudo systemctl restart relay
-sudo systemctl status relay
-```
+1. با مرورگر (ترجیحاً در حالت ناشناس/Incognito) وارد [script.google.com](https://script.google.com) شوید و پروژه جدید ایجاد کنید.
+2. محتوای فایل [`gas/Code.gs`](gas/Code.gs) را در ویرایشگر کپی کنید.
+3. در خط اول فایل، IP سرور خود را جایگزین کنید:
+   ```javascript
+   var VPS_URL = "http://YOUR_VPS_IP:8888/tunnel";
+   ```
+4. دکمه **Deploy** > **New deployment** را بزنید:
+   - نوع: **Web app**
+   - Execute as: **Me**
+   - Who has access: حتماً **`Anyone`** باشد.
+5. دکمه **Deploy** را زده و لینک URL وب‌اپلیکیشن تولیدشده را کپی کنید (`https://script.google.com/macros/s/.../exec`).
+6. *(اختیاری ولی توصیه شده):* برای سرعت بیشتر و تقسیم بار، همین کار را در ۲ یا ۳ اکانت جیمیل دیگر نیز تکرار کنید و لینک‌های آن‌ها را نگه دارید.
 
-### ۲. اجرای کلاینت ویندوز (`relay-gui.exe`)
-1. فایل `relay-gui.exe` را اجرا کنید.
-2. روی دکمه **Start Relay + Xray** کلیک کنید.
-3. در صورت تمایل دکمه **Windows Proxy: ON** را بزنید تا کل ویندوز از پروکسی استفاده کند.
-4. در بخش **Self-Tuning AI Matrix Lab**، پروفایل دلخواه (Ping، Speed یا Balanced) را انتخاب کرده و روی **Run Matrix Optimization** کلیک کنید تا بهترین تنظیمات اختصاصی شبکه شما پیدا و اعمال شود.
+---
+
+### گام ۳: اجرای کلاینت (ویندوز، لینوکس یا مک)
+
+#### در ویندوز:
+1. فایل **`relay-gui-windows-amd64.zip`** را دانلود و اکسترکت کنید.
+2. روی **`relay-gui.exe`** کلیک کنید.
+3. در تب **🌐 Google Script Accounts**، لینک‌های مرحله قبل را وارد کنید (هر خط یک لینک) و توکن مشترک سرور (`IK13eIodrB24`) را چک کنید.
+4. در تب اول، دکمه **▶ Start Relay + Xray** را بزنید.
+5. دکمه **🛡 Windows Proxy: ON** را بزنید تا کل ترافیک سیستم وصل شود.
+
+#### در لینوکس یا مک:
+1. بسته **`relay-gui-linux-amd64.tar.gz`** یا **`relay-gui-darwin-*.tar.gz`** را اکسترکت کرده و اجرا کنید:
+   ```bash
+   ./relay-gui
+   ```
+
+---
+
+## 🧪 آزمایشگاه بهینه‌سازی دوسطحی ماتریسی (AI Optimizer)
+
+در پنجره کلاینت وارد تب **⚡ AI Matrix Test Lab** شوید و یکی از ۳ استراتژی را انتخاب کنید:
+
+| استراتژی | تمرکز بهینه‌سازی | کاربرد اصلی |
+| :--- | :--- | :--- |
+| **1. Best Ping** | حداقل تأخیر میانه، حذف Jitter، کاهش زمان نگه‌داشت به ۲۰۰ms | بازی‌های آنلاین، تماس صوتی/تصویری، وب‌گردی فوق‌سریع |
+| **2. Best Speed** | حداکثر پهنای باند بافرها (۲۵۶KB) و ورکر‌های پایپ‌لاین ۳ و ۴ | استریم ویدیوی 4K، دانلود پرسرعت، یوتیوب |
+| **3. Balanced** | بهینه‌سازی نسبت حاصل‌ضرب تأخیر در پهنای باند (BDP) | وب‌گردی روزمره و دانلود متعادل |
+
+سپس روی **Run Two-Stage Matrix Optimization** کلیک کنید:
+1. سیستم در فاز اول ۶ معماری پارامتری را می‌سنجد.
+2. در فاز دوم پارامترهای برنده را با دقت ریز (Micro-tuning) بهینه‌تر می‌کند.
+3. پروب‌های پینگ اختصاصی و دانلود ۴ مگابایتی واقعی از سرور گرفته می‌شود.
+4. **تنظیمات برنده به طور خودکار هم روی کامپیوتر و هم روی سرور VPS ذخیره و قفل می‌شود!**
+
+---
+
+## 📦 جدول بسته‌های دانلودی (Release Assets)
+
+تمامی نسخه‌ها توسط [GitHub Actions](https://github.com/thehornet2002/google_script_relay/actions) به صورت خودکار کامپایل و در هر ریلیز قرار می‌گیرند:
+
+| نوع بسته | نام فایل | سیستم‌عامل و معماری | توضیحات |
+| :--- | :--- | :--- | :--- |
+| **Windows GUI** | `relay-gui-windows-amd64.zip` | Windows (x64) | برنامه گرافیکی تب‌بندی شده + هسته رسمی Xray |
+| **Linux GUI** | `relay-gui-linux-amd64.tar.gz` | Linux Desktop (x86_64) | برنامه گرافیکی مستقل لینوکس + فایل `.desktop` |
+| **Linux GUI ARM** | `relay-gui-linux-arm64.tar.gz` | Linux Desktop (ARM64) | برنامه گرافیکی برای بردهای ARM لینوکس |
+| **macOS GUI Intel** | `relay-gui-darwin-amd64.tar.gz` | macOS (Intel x86_64) | برنامه گرافیکی برای مک‌های اینتل |
+| **macOS GUI Apple** | `relay-gui-darwin-arm64.tar.gz` | macOS (Apple Silicon M1-M4) | برنامه گرافیکی بومی برای مک‌های سری M |
+| **Linux Server** | `relay-server-linux-amd64.tar.gz`| Linux Server (x86_64) | باینری سرور VPS + سرویس `relay.service` |
+| **Linux Server ARM**| `relay-server-linux-arm64.tar.gz`| Linux Server (ARM64) | باینری سرور برای VPSهای اوراکل ARM |
+| **Linux Server ARMv7**| `relay-server-linux-armv7.tar.gz`| Linux Server (ARMv7) | باینری سرور سبک برای بردهای کم‌مصرف |
+| **Windows CLI** | `relay-cli-windows-amd64.zip` | Windows (x64) | نسخه ترمینال برای اسکریپت‌ها و خودکارسازی |
+| **Windows CLI ARM** | `relay-cli-windows-arm64.zip` | Windows (ARM64) | نسخه ترمینال برای سرفیس و ویندوزهای ARM |
+| **macOS CLI** | `relay-cli-darwin-*.tar.gz` | macOS (x64 / ARM64) | نسخه ترمینال برای مک |
+| **Checksums** | `sha256sums.txt` | All Platforms | هشدارهای SHA-256 برای راستی‌آزمایی فایل‌ها |
+
+---
+
+## ❓ رفع اشکال و سوالات متداول (FAQ)
+
+### پیام "به دسترسی نیاز دارید" یا خطای ۴۰۳ در گوگل اسکریپت چیست؟
+در ادیتور Google Apps Script دکمه **Deploy** > **Manage deployments** را بزنید، روی آیکون مداد کلیک کنید و گزینه **Who has access** را حتماً روی **`Anyone`** قرار داده و مجدد دیپلوی کنید.
+
+### آیا این روش نیاز به کارت اعتباری بین‌المللی دارد؟
+**خیر، ۱۰۰٪ رایگان است.** هیچ‌کدام از بخش‌های Google Apps Script نیازی به کردیت کارت یا اکانت‌های پولی ندارند.
+
+### آیا روی لینوکس سرور نیاز به نصب پنل X-UI یا 3X-UI دارم؟
+خیر! برنامه سرور `relay-server-linux-*` کامپایل شده است تا در صورت نبود اینباند روی پورت `10001`، فایل کانفیگ اختصاصی VLESS/TCP را خودکار ایجاد کرده و سرور Xray را در پس‌زمینه اجرا کند.
+
+---
+
+## 🌐 English Overview
+
+**Xray Google Script Relay (XGSR)** is an enterprise-grade anti-censorship platform engineered to bypass deep packet inspection (DPI) and nationwide whitelisting filters using **Google Apps Script** as a resilient relay with **FCM / Google Push Domain Fronting**.
+
+### Key Architectural Capabilities:
+- **Zero-Blockability:** Traffic masquerades as native Android Google Push/FCM notification traffic to `fcm.googleapis.com` / `www.google.com`.
+- **Embedded Xray Core:** Built-in Xray lifecycle manager exposing local SOCKS5 (`10808`) and HTTP (`10809`) with single-click system proxy toggle.
+- **Dual-Pipelined Sliding Window:** Eliminates traditional Stop-and-Wait HTTP long-poll dead times, yielding 3-4x throughput over standard HTTP tunnels.
+- **Two-Stage AI Matrix Optimizer:** Automatically explores parameter spaces through direct VPS nanosecond probes and 4MB CRC32-verified download tests to lock in optimal settings.
+- **Self-Configuring VPS Server:** Automatically creates and operates a local VLESS/TCP inbound on port `10001` without requiring manual panel configurations.
+- **Multi-Platform Desktop GUI:** Native dark-themed interfaces for Windows (Win32 Common Controls v6 with High-DPI), Linux (Desktop app mode with `.desktop` launcher), and macOS (Universal Intel & Apple Silicon).
+
+---
+
+## 📄 مجوز (License)
+این پروژه تحت مجوز [MIT License](LICENSE) منتشر شده است.
