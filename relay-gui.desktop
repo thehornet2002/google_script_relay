@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Xray Google Script Relay
+Comment=High-Performance Anti-Censorship Relay with Google Domain Fronting
+Exec=relay-gui
+Icon=network-vpn
+Terminal=false
+Categories=Network;Security;VPN;
+StartupNotify=true

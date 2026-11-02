@@ -63,25 +63,80 @@ jobs:
           name: relay-gui-windows-amd64
           path: relay-gui-windows-amd64.zip
 
-  build-cross-platforms:
+  build-cross-gui:
+    name: Build Desktop GUI for Linux & macOS
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          # Linux GUI
+          - os: linux
+            arch: amd64
+            name: relay-gui-linux-amd64
+          - os: linux
+            arch: arm64
+            name: relay-gui-linux-arm64
+          # macOS GUI
+          - os: darwin
+            arch: amd64
+            name: relay-gui-darwin-amd64
+          - os: darwin
+            arch: arm64
+            name: relay-gui-darwin-arm64
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          check-latest: true
+
+      - name: Build Desktop GUI Binary
+        env:
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+          CGO_ENABLED: 0
+        run: |
+          mkdir -p package_dir/config
+          go build -ldflags="-s -w" -o "package_dir/relay-gui" ./cmd/gui
+
+          cp config/*.example.json package_dir/config/
+          cp config/xray_client.json package_dir/config/ 2>/dev/null || true
+          cp README.md package_dir/
+          cp LICENSE package_dir/
+          if [ "${{ matrix.os }}" = "linux" ]; then
+            cp relay-gui.desktop package_dir/ 2>/dev/null || true
+          fi
+
+          cd package_dir && tar -czvf "../../${{ matrix.name }}.tar.gz" ./* && cd ..
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: '*.tar.gz'
+
+  build-cross-cli-server:
     name: Build CLI & Server Targets
     runs-on: ubuntu-latest
     strategy:
       matrix:
         include:
-          # Linux
+          # Linux Server
           - os: linux
             arch: amd64
-            name: relay-linux-amd64
+            name: relay-server-linux-amd64
             is_server: true
           - os: linux
             arch: arm64
-            name: relay-linux-arm64
+            name: relay-server-linux-arm64
             is_server: true
           - os: linux
             arch: arm
             arm: 7
-            name: relay-linux-armv7
+            name: relay-server-linux-armv7
             is_server: true
           # Windows CLI
           - os: windows
@@ -152,7 +207,7 @@ jobs:
 
   release:
     name: Publish GitHub Release
-    needs: [build-windows-gui, build-cross-platforms]
+    needs: [build-windows-gui, build-cross-gui, build-cross-cli-server]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository

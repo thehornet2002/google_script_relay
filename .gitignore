@@ -2,6 +2,7 @@
 *.exe
 *.exe~
 relay-*
+!relay-gui.desktop
 bin/xray
 bin/xray.exe
 *.syso
