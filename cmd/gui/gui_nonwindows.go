@@ -508,8 +508,11 @@ const desktopHTML = `<!DOCTYPE html>
         <div style="font-size: 13px; font-weight: 600; margin-bottom: 8px;">Google Apps Script Web App URLs (one per line)</div>
         <textarea id="editUrls" class="log-area" placeholder="https://script.google.com/macros/s/.../exec"></textarea>
 
-        <div style="font-size: 13px; font-weight: 600; margin-bottom: 6px;">Auth Token</div>
-        <input id="editToken" class="input-field" type="text" placeholder="Enter secure shared token">
+        <div style="font-size: 13px; font-weight: 600; margin-bottom: 6px;">Data Token</div>
+        <input id="editToken" class="input-field" type="text" placeholder="Enter secure shared data token">
+
+        <div style="font-size: 13px; font-weight: 600; margin-bottom: 6px;">Admin Token (VPS Remote Tuning)</div>
+        <input id="editAdminToken" class="input-field" type="text" placeholder="Enter admin token for remote tuning">
 
         <div style="font-size: 13px; font-weight: 600; margin-bottom: 6px;">Domain Fronting SNI</div>
         <input id="editFront" class="input-field" type="text" placeholder="fcm.googleapis.com">
@@ -637,11 +640,13 @@ const desktopHTML = `<!DOCTYPE html>
     async function saveAccounts() {
       const urls = document.getElementById('editUrls').value.split('\n').map(s => s.trim()).filter(Boolean);
       const token = document.getElementById('editToken').value.trim();
+      const adminToken = document.getElementById('editAdminToken').value.trim();
       const front = document.getElementById('editFront').value.trim();
       const frontIP = document.getElementById('editFrontIP').value.trim();
 
       currentConfig.gas_urls = urls;
       currentConfig.token = token;
+      currentConfig.admin_token = adminToken || token;
       currentConfig.front_domain = front;
       currentConfig.front_ip = frontIP;
 
@@ -700,6 +705,7 @@ const desktopHTML = `<!DOCTYPE html>
           if (!document.getElementById('editUrls').matches(':focus')) {
             document.getElementById('editUrls').value = (data.config.gas_urls || []).join('\n');
             document.getElementById('editToken').value = data.config.token || '';
+            document.getElementById('editAdminToken').value = data.config.admin_token || data.config.token || '';
             document.getElementById('editFront').value = data.config.front_domain || '';
             document.getElementById('editFrontIP').value = data.config.front_ip || '';
           }

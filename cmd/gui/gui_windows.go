@@ -191,6 +191,7 @@ var (
 	// Tab 2: Accounts & Security controls
 	hEditGas        uintptr
 	hEditToken      uintptr
+	hEditAdminToken uintptr
 	hEditFront      uintptr
 	hEditFrontIP    uintptr
 	hBtnValidateAcc uintptr
@@ -497,22 +498,26 @@ func buildModernInterface(hWnd, hInstance uintptr) {
 	hEditGas = createCtrl("EDIT", "", WS_CHILD|WS_VISIBLE|WS_BORDER|WS_TABSTOP|ES_MULTILINE|ES_AUTOVSCROLL|WS_VSCROLL, 35, 105, 685, 200, 0, hFontMonopic)
 	t2(hEditGas)
 
-	t2(createCtrl("BUTTON", "Authentication & Domain Fronting Settings", WS_CHILD|WS_VISIBLE|BS_GROUPBOX, 35, 320, 685, 175, 0, hFontRegular))
+	t2(createCtrl("BUTTON", "Authentication & Domain Fronting Settings", WS_CHILD|WS_VISIBLE|BS_GROUPBOX, 35, 315, 685, 190, 0, hFontRegular))
 
-	t2(createCtrl("STATIC", "Shared Auth Token:", WS_CHILD|WS_VISIBLE, 50, 350, 150, 20, 0, hFontRegular))
-	hEditToken = createCtrl("EDIT", "", WS_CHILD|WS_VISIBLE|WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL, 205, 348, 250, 24, 0, hFontBold)
+	t2(createCtrl("STATIC", "Shared Data Token:", WS_CHILD|WS_VISIBLE, 50, 342, 150, 20, 0, hFontRegular))
+	hEditToken = createCtrl("EDIT", "", WS_CHILD|WS_VISIBLE|WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL, 205, 340, 250, 24, 0, hFontBold)
 	t2(hEditToken)
 
-	t2(createCtrl("STATIC", "Domain Fronting SNI:", WS_CHILD|WS_VISIBLE, 50, 385, 150, 20, 0, hFontRegular))
-	hEditFront = createCtrl("EDIT", "fcm.googleapis.com", WS_CHILD|WS_VISIBLE|WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL, 205, 383, 250, 24, 0, hFontRegular)
+	t2(createCtrl("STATIC", "Admin Token (VPS):", WS_CHILD|WS_VISIBLE, 50, 374, 150, 20, 0, hFontRegular))
+	hEditAdminToken = createCtrl("EDIT", "", WS_CHILD|WS_VISIBLE|WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL, 205, 372, 250, 24, 0, hFontBold)
+	t2(hEditAdminToken)
+
+	t2(createCtrl("STATIC", "Domain Fronting SNI:", WS_CHILD|WS_VISIBLE, 50, 406, 150, 20, 0, hFontRegular))
+	hEditFront = createCtrl("EDIT", "fcm.googleapis.com", WS_CHILD|WS_VISIBLE|WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL, 205, 404, 250, 24, 0, hFontRegular)
 	t2(hEditFront)
 
-	t2(createCtrl("STATIC", "Clean Google IP (Optional):", WS_CHILD|WS_VISIBLE, 50, 420, 150, 20, 0, hFontRegular))
-	hEditFrontIP = createCtrl("EDIT", "", WS_CHILD|WS_VISIBLE|WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL, 205, 418, 250, 24, 0, hFontRegular)
+	t2(createCtrl("STATIC", "Clean Google IP (Optional):", WS_CHILD|WS_VISIBLE, 50, 438, 150, 20, 0, hFontRegular))
+	hEditFrontIP = createCtrl("EDIT", "", WS_CHILD|WS_VISIBLE|WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL, 205, 436, 250, 24, 0, hFontRegular)
 	t2(hEditFrontIP)
 
-	hBtnValidateAcc = createCtrl("BUTTON", "🔍 Probe All Accounts Health", WS_CHILD|WS_VISIBLE|BS_PUSHBUTTON, 480, 348, 220, 30, ID_BTN_VALIDATE, hFontRegular)
-	hBtnSaveAcc = createCtrl("BUTTON", "💾 Save Accounts Config", WS_CHILD|WS_VISIBLE|BS_PUSHBUTTON, 480, 415, 220, 32, ID_BTN_SAVE, hFontBold)
+	hBtnValidateAcc = createCtrl("BUTTON", "🔍 Probe All Accounts Health", WS_CHILD|WS_VISIBLE|BS_PUSHBUTTON, 480, 348, 220, 32, ID_BTN_VALIDATE, hFontRegular)
+	hBtnSaveAcc = createCtrl("BUTTON", "💾 Save Accounts Config", WS_CHILD|WS_VISIBLE|BS_PUSHBUTTON, 480, 420, 220, 34, ID_BTN_SAVE, hFontBold)
 	t2(hBtnValidateAcc)
 	t2(hBtnSaveAcc)
 
@@ -619,6 +624,11 @@ func loadInitialConfig() {
 			if cfg.Token != "" {
 				setControlText(hEditToken, cfg.Token)
 			}
+			if cfg.AdminToken != "" {
+				setControlText(hEditAdminToken, cfg.AdminToken)
+			} else if cfg.Token != "" {
+				setControlText(hEditAdminToken, cfg.Token)
+			}
 			if cfg.FrontDomain != "" {
 				setControlText(hEditFront, cfg.FrontDomain)
 			}
@@ -708,12 +718,18 @@ func collectCurrentConfig() relay.Config {
 		DownlinkQueueCap:   256,
 	}
 
+	adminTok := getControlText(hEditAdminToken)
+	if adminTok == "" {
+		adminTok = getControlText(hEditToken)
+	}
+
 	return relay.Config{
 		Mode:         "client",
 		ListenAddr:   "127.0.0.1:10800",
 		GasURL:       firstURL,
 		GasURLs:      urls,
 		Token:        getControlText(hEditToken),
+		AdminToken:   adminTok,
 		FrontDomain:  getControlText(hEditFront),
 		FrontIP:      getControlText(hEditFrontIP),
 		ClientTuning: &clientTuning,
@@ -826,8 +842,12 @@ func fetchVPSConfig() {
 	}
 
 	go func() {
+		admToken := getControlText(hEditAdminToken)
+		if admToken == "" {
+			admToken = getControlText(hEditToken)
+		}
 		appendLog("[Admin] Querying VPS server configuration over Google tunnel...")
-		res, err := relay.SendAdminCommand(rc.GetHTTPClient(), rc.GetEndpointPool(), getControlText(hEditToken), relay.AdminRequest{
+		res, err := relay.SendAdminCommand(rc.GetHTTPClient(), rc.GetEndpointPool(), admToken, relay.AdminRequest{
 			Action: "get_tuning",
 		})
 		if err != nil {
@@ -866,8 +886,12 @@ func pushVPSTuning() {
 	rc.SetTuning(*cfg.ClientTuning)
 
 	go func() {
+		admToken := getControlText(hEditAdminToken)
+		if admToken == "" {
+			admToken = getControlText(hEditToken)
+		}
 		appendLog("[Admin] Pushing new tuning parameters to VPS...")
-		res, err := relay.SendAdminCommand(rc.GetHTTPClient(), rc.GetEndpointPool(), getControlText(hEditToken), relay.AdminRequest{
+		res, err := relay.SendAdminCommand(rc.GetHTTPClient(), rc.GetEndpointPool(), admToken, relay.AdminRequest{
 			Action: "set_tuning",
 			Tuning: &tuning,
 		})
@@ -875,7 +899,7 @@ func pushVPSTuning() {
 			appendLog(fmt.Sprintf("[Admin] Error pushing tuning to VPS: %v", err))
 			return
 		}
-		_, _ = relay.SendAdminCommand(rc.GetHTTPClient(), rc.GetEndpointPool(), getControlText(hEditToken), relay.AdminRequest{
+		_, _ = relay.SendAdminCommand(rc.GetHTTPClient(), rc.GetEndpointPool(), admToken, relay.AdminRequest{
 			Action: "save_config",
 		})
 		appendLog(fmt.Sprintf("[Admin] VPS tuning updated and persisted: %s", res.Message))
