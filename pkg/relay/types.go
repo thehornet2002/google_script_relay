@@ -90,10 +90,42 @@ func (c *Config) EnsureDefaults() {
 	if c.ClientTuning == nil {
 		def := DefaultClientTuning()
 		c.ClientTuning = &def
+	} else {
+		if c.ClientTuning.Workers < 1 || c.ClientTuning.Workers > 4 {
+			c.ClientTuning.Workers = 2
+		}
+		if c.ClientTuning.WorkerStaggerMs < 0 || c.ClientTuning.WorkerStaggerMs > 500 {
+			c.ClientTuning.WorkerStaggerMs = 250
+		}
+		if c.ClientTuning.DownlinkFastPollMs < 0 || c.ClientTuning.DownlinkFastPollMs > 50 {
+			c.ClientTuning.DownlinkFastPollMs = 5
+		}
+		if c.ClientTuning.DownlinkMaxIdleMs < 100 || c.ClientTuning.DownlinkMaxIdleMs > 2000 {
+			c.ClientTuning.DownlinkMaxIdleMs = 600
+		}
+		if c.ClientTuning.MuxConcurrency < 0 || c.ClientTuning.MuxConcurrency > 32 {
+			c.ClientTuning.MuxConcurrency = 8
+		}
+		if c.ClientTuning.SocketBufferKB < 16 || c.ClientTuning.SocketBufferKB > 512 {
+			c.ClientTuning.SocketBufferKB = 64
+		}
+		if c.ClientTuning.UplinkChunkKB < 8 || c.ClientTuning.UplinkChunkKB > 256 {
+			c.ClientTuning.UplinkChunkKB = 32
+		}
 	}
 	if c.ServerTuning == nil {
 		def := DefaultServerTuning()
 		c.ServerTuning = &def
+	} else {
+		if c.ServerTuning.WaitTimeoutMs < 100 || c.ServerTuning.WaitTimeoutMs > 2000 {
+			c.ServerTuning.WaitTimeoutMs = 800
+		}
+		if c.ServerTuning.MaxDrainBatchBytes < 8192 || c.ServerTuning.MaxDrainBatchBytes > 524288 {
+			c.ServerTuning.MaxDrainBatchBytes = 131072
+		}
+		if c.ServerTuning.DownlinkQueueCap < 64 || c.ServerTuning.DownlinkQueueCap > 1024 {
+			c.ServerTuning.DownlinkQueueCap = 256
+		}
 	}
 	if c.SocksPort == 0 {
 		c.SocksPort = 10808

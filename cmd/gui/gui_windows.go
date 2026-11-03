@@ -625,14 +625,26 @@ func loadInitialConfig() {
 			setControlText(hEditFrontIP, cfg.FrontIP)
 
 			if cfg.ClientTuning != nil {
-				setControlText(hEditWorkers, strconv.Itoa(cfg.ClientTuning.Workers))
+				workers := cfg.ClientTuning.Workers
+				if workers < 1 || workers > 4 {
+					workers = 2
+				}
+				setControlText(hEditWorkers, strconv.Itoa(workers))
 				setControlText(hEditFastPoll, strconv.Itoa(cfg.ClientTuning.DownlinkFastPollMs))
 				setControlText(hEditMaxIdle, strconv.Itoa(cfg.ClientTuning.DownlinkMaxIdleMs))
 				setControlText(hEditMux, strconv.Itoa(cfg.ClientTuning.MuxConcurrency))
 			}
 			if cfg.ServerTuning != nil {
-				setControlText(hEditServerWait, strconv.Itoa(cfg.ServerTuning.WaitTimeoutMs))
-				setControlText(hEditServerDrain, strconv.Itoa(cfg.ServerTuning.MaxDrainBatchBytes))
+				wait := cfg.ServerTuning.WaitTimeoutMs
+				if wait < 100 || wait > 2000 {
+					wait = 800
+				}
+				drain := cfg.ServerTuning.MaxDrainBatchBytes
+				if drain < 8192 || drain > 524288 {
+					drain = 131072
+				}
+				setControlText(hEditServerWait, strconv.Itoa(wait))
+				setControlText(hEditServerDrain, strconv.Itoa(drain))
 			}
 
 			appendLog(fmt.Sprintf("Loaded configuration from %s (%d accounts configured)", configPath, len(allURLs)))
@@ -650,11 +662,35 @@ func collectCurrentConfig() relay.Config {
 	}
 
 	workers, _ := strconv.Atoi(getControlText(hEditWorkers))
+	if workers < 1 || workers > 4 {
+		workers = 2
+		setControlText(hEditWorkers, "2")
+	}
 	fastPoll, _ := strconv.Atoi(getControlText(hEditFastPoll))
+	if fastPoll < 0 || fastPoll > 50 {
+		fastPoll = 5
+		setControlText(hEditFastPoll, "5")
+	}
 	maxIdle, _ := strconv.Atoi(getControlText(hEditMaxIdle))
+	if maxIdle < 100 || maxIdle > 2000 {
+		maxIdle = 600
+		setControlText(hEditMaxIdle, "600")
+	}
 	muxCount, _ := strconv.Atoi(getControlText(hEditMux))
+	if muxCount < 0 || muxCount > 32 {
+		muxCount = 8
+		setControlText(hEditMux, "8")
+	}
 	serverWait, _ := strconv.Atoi(getControlText(hEditServerWait))
+	if serverWait < 100 || serverWait > 2000 {
+		serverWait = 800
+		setControlText(hEditServerWait, "800")
+	}
 	serverDrain, _ := strconv.Atoi(getControlText(hEditServerDrain))
+	if serverDrain < 8192 || serverDrain > 524288 {
+		serverDrain = 131072
+		setControlText(hEditServerDrain, "131072")
+	}
 
 	clientTuning := relay.ClientTuning{
 		Workers:            workers,
