@@ -63,6 +63,7 @@ type OptimizationReport struct {
 type Optimizer struct {
 	client     *Client
 	token      string
+	adminToken string
 	httpClient *http.Client
 	pool       *EndpointPool
 	cancelFlag atomic.Bool
@@ -70,9 +71,14 @@ type Optimizer struct {
 }
 
 func NewOptimizer(c *Client) *Optimizer {
+	admTok := c.cfg.AdminToken
+	if admTok == "" {
+		admTok = c.cfg.Token
+	}
 	return &Optimizer{
 		client:     c,
 		token:      c.cfg.Token,
+		adminToken: admTok,
 		httpClient: c.httpClient,
 		pool:       c.pool,
 		LogFunc:    c.LogFunc,
@@ -294,7 +300,7 @@ func (o *Optimizer) GenerateFineTuningCandidates(winner MatrixCandidate) []Matri
 				MuxConcurrency: c.MuxConcurrency, SocketBufferKB: c.SocketBufferKB, UplinkChunkKB: c.UplinkChunkKB,
 			},
 			ServerTuning: ServerTuning{
-				WaitTimeoutMs: int(math.Max(150, float64(s.WaitTimeoutMs-50))),
+				WaitTimeoutMs:      int(math.Max(150, float64(s.WaitTimeoutMs-50))),
 				MaxDrainBatchBytes: s.MaxDrainBatchBytes, DownlinkQueueCap: s.DownlinkQueueCap,
 			},
 		},
@@ -306,9 +312,9 @@ func (o *Optimizer) GenerateFineTuningCandidates(winner MatrixCandidate) []Matri
 				MuxConcurrency: c.MuxConcurrency, SocketBufferKB: c.SocketBufferKB, UplinkChunkKB: c.UplinkChunkKB,
 			},
 			ServerTuning: ServerTuning{
-				WaitTimeoutMs: s.WaitTimeoutMs,
+				WaitTimeoutMs:      s.WaitTimeoutMs,
 				MaxDrainBatchBytes: int(math.Min(262144, float64(s.MaxDrainBatchBytes+32768))),
-				DownlinkQueueCap: s.DownlinkQueueCap,
+				DownlinkQueueCap:   s.DownlinkQueueCap,
 			},
 		},
 	}
@@ -343,9 +349,16 @@ func (o *Optimizer) RunOptimization(ctx context.Context, profile ProfileType, on
 			Action: "set_tuning",
 			Tuning: &cand.ServerTuning,
 		}
-		_, err := SendAdminCommand(o.httpClient, o.pool, o.token, adminReq)
-		if err != nil {
-			o.log("[Optimizer] Note: could not apply server tuning remotely: %v", err)
+		adminResp, err := SendAdminCommand(o.httpClient, o.pool, o.adminToken, adminReq)
+		if err != nil || (adminResp != nil && !adminResp.Success) {
+			errMsg := "unknown"
+			if err != nil {
+				errMsg = err.Error()
+			} else if adminResp != nil {
+				errMsg = adminResp.Message
+			}
+			o.log("[Optimizer] Warning: failed to apply server tuning remotely: %s. Candidate skipped.", errMsg)
+			return
 		}
 
 		// Apply locally to client
@@ -460,14 +473,14 @@ func (o *Optimizer) RunOptimization(ctx context.Context, profile ProfileType, on
 		o.log("═════════════════════════════════════════════════════════════════════")
 
 		// Commit optimal tuning permanently to VPS
-		_, _ = SendAdminCommand(o.httpClient, o.pool, o.token, AdminRequest{
+		_, _ = SendAdminCommand(o.httpClient, o.pool, o.adminToken, AdminRequest{
 			Action: "set_tuning",
 			Tuning: &bestCand.ServerTuning,
 		})
-		_, _ = SendAdminCommand(o.httpClient, o.pool, o.token, AdminRequest{
+		_, _ = SendAdminCommand(o.httpClient, o.pool, o.adminToken, AdminRequest{
 			Action: "save_config",
 		})
-		o.client.SetTuning(bestCand.ClientTuning)
+		_ = o.client.SetTuning(bestCand.ClientTuning)
 	}
 
 	return report, nil

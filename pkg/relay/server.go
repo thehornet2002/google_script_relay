@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -8,8 +9,8 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -18,7 +19,9 @@ import (
 )
 
 const (
-	BenchmarkFileSize = 4 * 1024 * 1024 // Exact 4 MB test payload
+	BenchmarkFileSize   = 4 * 1024 * 1024 // Exact 4 MB test payload
+	MaxRequestBodyBytes = 512 * 1024      // 512 KB request limit
+	MaxPacketDataBytes  = 350 * 1024      // ~256 KB decoded base64 limit
 )
 
 var (
@@ -41,13 +44,16 @@ func getBenchmarkPayload() ([]byte, uint32) {
 }
 
 type ServerSession struct {
-	id          string
-	xrayConn    net.Conn
-	downlinkCh  chan []byte
-	downlinkSeq atomic.Uint64
-	closed      atomic.Bool
-	lastActive  atomic.Int64
-	once        sync.Once
+	id            string
+	tokenSig      string
+	xrayConn      net.Conn
+	downlinkCh    chan []byte
+	downlinkSeq   atomic.Uint64
+	closed        atomic.Bool
+	lastActive    atomic.Int64
+	processedRIDs sync.Map // map[uint64]int64 (RequestID -> timestamp)
+	ridCount      atomic.Int64
+	once          sync.Once
 }
 
 func (s *ServerSession) Close() {
@@ -59,6 +65,27 @@ func (s *ServerSession) Close() {
 	})
 }
 
+func (s *ServerSession) MarkAndCheckProcessed(rid uint64) bool {
+	if rid == 0 {
+		return false
+	}
+	_, loaded := s.processedRIDs.LoadOrStore(rid, time.Now().Unix())
+	if !loaded {
+		if s.ridCount.Add(1) > 1000 {
+			// Periodic trim of processed IDs older than 60s
+			cutoff := time.Now().Unix() - 60
+			s.processedRIDs.Range(func(key, val any) bool {
+				if t, ok := val.(int64); ok && t < cutoff {
+					s.processedRIDs.Delete(key)
+					s.ridCount.Add(-1)
+				}
+				return true
+			})
+		}
+	}
+	return loaded
+}
+
 type Server struct {
 	cfg        *Config
 	configPath string
@@ -66,6 +93,7 @@ type Server struct {
 	tuningMu   sync.RWMutex
 	tuning     ServerTuning
 	xrayMgr    *xray.Manager
+	httpServer *http.Server
 	startTime  time.Time
 }
 
@@ -89,20 +117,23 @@ func (s *Server) GetTuning() ServerTuning {
 	return s.tuning
 }
 
-func (s *Server) SetTuning(t ServerTuning) {
+func (s *Server) SetTuning(t ServerTuning) error {
+	if err := t.Validate(); err != nil {
+		return err
+	}
 	s.tuningMu.Lock()
 	defer s.tuningMu.Unlock()
-	if t.WaitTimeoutMs < 100 {
-		t.WaitTimeoutMs = 100
-	}
-	if t.MaxDrainBatchBytes < 8192 {
-		t.MaxDrainBatchBytes = 8192
-	}
 	s.tuning = t
-	log.Printf("[Server] Updated tuning: WaitTimeout=%dms, MaxDrain=%d bytes", t.WaitTimeoutMs, t.MaxDrainBatchBytes)
+	log.Printf("[Server] Updated tuning: WaitTimeout=%dms, MaxDrain=%d bytes, QueueCap=%d",
+		t.WaitTimeoutMs, t.MaxDrainBatchBytes, t.DownlinkQueueCap)
+	return nil
 }
 
 func (s *Server) Start() error {
+	if err := s.cfg.Validate(); err != nil {
+		return fmt.Errorf("server configuration error: %w", err)
+	}
+
 	if s.cfg.ListenAddr == "" {
 		s.cfg.ListenAddr = "0.0.0.0:8080"
 	}
@@ -131,11 +162,11 @@ func (s *Server) Start() error {
 		fmt.Sscanf(portStr, "%d", &targetPort)
 	}
 	s.xrayMgr = xray.NewServerManager(targetPort, log.Printf)
-	if err := s.xrayMgr.StartServerAuto(); err != nil {
+	if err := s.xrayMgr.StartServerAuto(s.cfg.XrayUUID); err != nil {
 		log.Printf("[Server] Auto-Xray note: %v", err)
 	}
 
-	server := &http.Server{
+	s.httpServer = &http.Server{
 		Addr:         s.cfg.ListenAddr,
 		Handler:      mux,
 		ReadTimeout:  35 * time.Second,
@@ -143,7 +174,32 @@ func (s *Server) Start() error {
 		IdleTimeout:  120 * time.Second,
 	}
 
-	return server.ListenAndServe()
+	return s.httpServer.ListenAndServe()
+}
+
+func (s *Server) Shutdown(ctx context.Context) error {
+	log.Printf("[Server] Initiating graceful shutdown...")
+	var err error
+	if s.httpServer != nil {
+		err = s.httpServer.Shutdown(ctx)
+	}
+
+	// Terminate active sessions
+	s.sessions.Range(func(key, val any) bool {
+		if sess, ok := val.(*ServerSession); ok {
+			sess.Close()
+		}
+		s.sessions.Delete(key)
+		return true
+	})
+
+	// Stop child Xray process cleanly
+	if s.xrayMgr != nil {
+		s.xrayMgr.Stop()
+	}
+
+	log.Printf("[Server] Shutdown complete.")
+	return err
 }
 
 func (s *Server) handleTunnel(w http.ResponseWriter, r *http.Request) {
@@ -154,14 +210,28 @@ func (s *Server) handleTunnel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Limit request body size to mitigate resource exhaustion attacks
+	r.Body = http.MaxBytesReader(w, r.Body, MaxRequestBodyBytes)
+
 	var p Packet
 	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
-		http.Error(w, "Bad Request", http.StatusBadRequest)
+		http.Error(w, "Bad Request: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	if s.cfg.Token != "" && p.Token != s.cfg.Token {
+	// Mandatory constant-time data token authentication
+	if strings.TrimSpace(s.cfg.Token) == "" {
+		http.Error(w, "Server configuration error: Token not configured", http.StatusInternalServerError)
+		return
+	}
+	if !ConstantTimeCompare(p.Token, s.cfg.Token) {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Bound packet data payload size
+	if len(p.Data) > MaxPacketDataBytes {
+		http.Error(w, "Payload Too Large", http.StatusRequestEntityTooLarge)
 		return
 	}
 
@@ -182,7 +252,7 @@ func (s *Server) handleTunnel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 3. Fast path for remote admin & tuning
+	// 3. Fast path for remote admin & tuning (requires AdminToken)
 	if p.SessionID == "__admin__" {
 		s.handleAdminRequest(w, p)
 		return
@@ -193,7 +263,7 @@ func (s *Server) handleTunnel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sess := s.getOrCreateSession(p.SessionID)
+	sess := s.getOrCreateSession(p.SessionID, p.SessionSig)
 	if sess == nil {
 		jsonResponse(w, ResponsePacket{Close: true, Error: "failed to connect target"})
 		return
@@ -207,15 +277,18 @@ func (s *Server) handleTunnel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Write incoming client data to VPS Xray
+	// Write incoming client data to VPS Xray (with RequestID deduplication)
 	if p.Data != "" {
-		raw, err := base64.StdEncoding.DecodeString(p.Data)
-		if err == nil && len(raw) > 0 {
-			if _, wErr := sess.xrayConn.Write(raw); wErr != nil {
-				sess.Close()
-				s.sessions.Delete(p.SessionID)
-				jsonResponse(w, ResponsePacket{Close: true})
-				return
+		isDuplicate := sess.MarkAndCheckProcessed(p.RequestID)
+		if !isDuplicate {
+			raw, err := base64.StdEncoding.DecodeString(p.Data)
+			if err == nil && len(raw) > 0 {
+				if _, wErr := sess.xrayConn.Write(raw); wErr != nil {
+					sess.Close()
+					s.sessions.Delete(p.SessionID)
+					jsonResponse(w, ResponsePacket{Close: true})
+					return
+				}
 			}
 		}
 	}
@@ -227,6 +300,9 @@ func (s *Server) handleTunnel(w http.ResponseWriter, r *http.Request) {
 	if p.Data != "" {
 		waitTimeout = 10 * time.Millisecond
 	}
+
+	timer := time.NewTimer(waitTimeout)
+	defer timer.Stop()
 
 	select {
 	case chunk, ok := <-sess.downlinkCh:
@@ -247,7 +323,7 @@ func (s *Server) handleTunnel(w http.ResponseWriter, r *http.Request) {
 				break drainLoop
 			}
 		}
-	case <-time.After(waitTimeout):
+	case <-timer.C:
 	}
 
 	if sess.closed.Load() {
@@ -256,7 +332,9 @@ func (s *Server) handleTunnel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := ResponsePacket{}
+	resp := ResponsePacket{
+		RequestID: p.RequestID,
+	}
 	if len(combined) > 0 {
 		resp.Seq = sess.downlinkSeq.Add(1)
 		resp.Data = base64.StdEncoding.EncodeToString(combined)
@@ -276,6 +354,11 @@ func (s *Server) handleBenchmarkStream(w http.ResponseWriter, p Packet) {
 	}
 
 	all, _ := getBenchmarkPayload()
+	if offset < 0 || offset > len(all) {
+		http.Error(w, "invalid benchmark offset", http.StatusBadRequest)
+		return
+	}
+
 	if offset >= len(all) {
 		jsonResponse(w, ResponsePacket{
 			TotalSize: len(all),
@@ -303,6 +386,22 @@ func (s *Server) handleBenchmarkStream(w http.ResponseWriter, p Packet) {
 }
 
 func (s *Server) handleAdminRequest(w http.ResponseWriter, p Packet) {
+	// Verify separate AdminToken
+	expectedAdminToken := s.cfg.AdminToken
+	if expectedAdminToken == "" {
+		expectedAdminToken = s.cfg.Token
+	}
+
+	candidateAdminToken := p.AdminToken
+	if candidateAdminToken == "" {
+		candidateAdminToken = p.Token
+	}
+
+	if !ConstantTimeCompare(candidateAdminToken, expectedAdminToken) {
+		jsonResponse(w, ResponsePacket{Error: "Unauthorized admin request: invalid admin token"})
+		return
+	}
+
 	raw, err := base64.StdEncoding.DecodeString(p.Data)
 	if err != nil {
 		jsonResponse(w, ResponsePacket{Error: "invalid base64 admin request"})
@@ -311,7 +410,7 @@ func (s *Server) handleAdminRequest(w http.ResponseWriter, p Packet) {
 
 	var req AdminRequest
 	if err := json.Unmarshal(raw, &req); err != nil {
-		jsonResponse(w, ResponsePacket{Error: "invalid json admin request"})
+		jsonResponse(w, ResponsePacket{Error: "invalid json admin request: " + err.Error()})
 		return
 	}
 
@@ -323,10 +422,14 @@ func (s *Server) handleAdminRequest(w http.ResponseWriter, p Packet) {
 		res.Tuning = &t
 	case "set_tuning":
 		if req.Tuning != nil {
-			s.SetTuning(*req.Tuning)
-			t := s.GetTuning()
-			res.Tuning = &t
-			res.Message = "Tuning applied successfully"
+			if err := s.SetTuning(*req.Tuning); err != nil {
+				res.Success = false
+				res.Message = "Invalid tuning parameters: " + err.Error()
+			} else {
+				t := s.GetTuning()
+				res.Tuning = &t
+				res.Message = "Tuning applied successfully"
+			}
 		} else {
 			res.Success = false
 			res.Message = "Missing tuning object"
@@ -337,12 +440,19 @@ func (s *Server) handleAdminRequest(w http.ResponseWriter, p Packet) {
 			s.cfg.ServerTuning = &t
 			data, err := json.MarshalIndent(s.cfg, "", "  ")
 			if err == nil {
-				_ = os.WriteFile(s.configPath, data, 0644)
-				res.Message = fmt.Sprintf("Saved server config to %s", s.configPath)
+				if err := AtomicWriteSecureConfigFile(s.configPath, data); err != nil {
+					res.Success = false
+					res.Message = err.Error()
+				} else {
+					res.Message = fmt.Sprintf("Saved server config securely to %s", s.configPath)
+				}
 			} else {
 				res.Success = false
 				res.Message = err.Error()
 			}
+		} else {
+			res.Success = false
+			res.Message = "Server configPath not configured"
 		}
 	case "status":
 		t := s.GetTuning()
@@ -359,11 +469,17 @@ func (s *Server) handleAdminRequest(w http.ResponseWriter, p Packet) {
 	})
 }
 
-func (s *Server) getOrCreateSession(id string) *ServerSession {
+func (s *Server) getOrCreateSession(id string, sig string) *ServerSession {
 	val, ok := s.sessions.Load(id)
 	if ok {
 		sess := val.(*ServerSession)
 		if !sess.closed.Load() {
+			// Validate HMAC session binding
+			expectedSig := ComputeSessionBindingHMAC(s.cfg.Token, id)
+			if sess.tokenSig != "" && !ConstantTimeCompare(sess.tokenSig, expectedSig) {
+				log.Printf("[Server] Session %s HMAC signature mismatch: potential hijacking attempt rejected", id)
+				return nil
+			}
 			return sess
 		}
 		s.sessions.Delete(id)
@@ -377,7 +493,7 @@ func (s *Server) getOrCreateSession(id string) *ServerSession {
 
 	tuning := s.GetTuning()
 	qCap := tuning.DownlinkQueueCap
-	if qCap < 128 {
+	if qCap < 64 {
 		qCap = 256
 	}
 
@@ -391,6 +507,7 @@ func (s *Server) getOrCreateSession(id string) *ServerSession {
 
 	sess := &ServerSession{
 		id:         id,
+		tokenSig:   ComputeSessionBindingHMAC(s.cfg.Token, id),
 		xrayConn:   conn,
 		downlinkCh: make(chan []byte, qCap),
 	}
@@ -446,5 +563,7 @@ func (s *Server) reapInactiveSessions(timeout time.Duration) {
 
 func jsonResponse(w http.ResponseWriter, resp ResponsePacket) {
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(resp)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		log.Printf("[Server] jsonResponse encode error: %v", err)
+	}
 }

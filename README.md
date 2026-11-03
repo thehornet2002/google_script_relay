@@ -104,20 +104,34 @@
 
 1. از بخش [Releases](https://github.com/thehornet2002/google_script_relay/releases/latest)، بسته **`relay-server-linux-amd64.tar.gz`** (یا نسخه arm64 برای سرورهای ARM) را دانلود کرده و به سرور منتقل کنید:
    ```bash
-   mkdir -p /root/google_script
-   cd /root/google_script
+   mkdir -p /opt/relay
+   cd /opt/relay
    tar -xzvf relay-server-linux-amd64.tar.gz
    chmod +x relay
    ```
 
-2. باز کردن پورت فایروال:
+2. تولید توکن امن و UUID تصادفی:
+   ```bash
+   ./relay -mode gen-token
+   ```
+   مقادیر خروجی (Secure Token و Xray UUID) را کپی کرده و در `config/server_config.json` وارد کنید.
+
+3. راه‌اندازی معکوس امن با HTTPS (توصیه شده):
+   برای حفاظت از داده‌ها بین گوگل و سرور شما، یک Reverse Proxy با گواهی‌نامه رایگان SSL (مانند Caddy) نصب کنید:
+   ```caddy
+   # /etc/caddy/Caddyfile
+   relay.yourdomain.com {
+       reverse_proxy 127.0.0.1:8888
+   }
+   ```
+   و در فایروال فقط پورت‌های ۴۴۳ و ۲۲ را باز کنید:
    ```bash
    sudo ufw allow 22/tcp
-   sudo ufw allow 8888/tcp
+   sudo ufw allow 443/tcp
    sudo ufw enable
    ```
 
-3. نصب و اجرای سرویس دائمی systemd:
+4. نصب و اجرای سرویس دائمی systemd:
    ```bash
    sudo cp relay.service /etc/systemd/system/relay.service
    sudo systemctl daemon-reload
@@ -132,9 +146,9 @@
 
 1. با مرورگر (ترجیحاً در حالت ناشناس/Incognito) وارد [script.google.com](https://script.google.com) شوید و پروژه جدید ایجاد کنید.
 2. محتوای فایل [`gas/Code.gs`](gas/Code.gs) را در ویرایشگر کپی کنید.
-3. در خط اول فایل، IP سرور خود را جایگزین کنید:
+3. در خط اول فایل، آدرس امن HTTPS سرور خود را جایگزین کنید:
    ```javascript
-   var VPS_URL = "http://YOUR_VPS_IP:8888/tunnel";
+   var VPS_URL = "https://relay.yourdomain.com/tunnel";
    ```
 4. دکمه **Deploy** > **New deployment** را بزنید:
    - نوع: **Web app**
@@ -150,7 +164,7 @@
 #### در ویندوز:
 1. فایل **`relay-gui-windows-amd64.zip`** را دانلود و اکسترکت کنید.
 2. روی **`relay-gui.exe`** کلیک کنید.
-3. در تب **🌐 Google Script Accounts**، لینک‌های مرحله قبل را وارد کنید (هر خط یک لینک) و توکن مشترک سرور (`IK13eIodrB24`) را چک کنید.
+3. در تب **🌐 Google Script Accounts**، لینک‌های مرحله قبل را وارد کنید (هر خط یک لینک) و توکن مشترک سرور را وارد کنید.
 4. در تب اول، دکمه **▶ Start Relay + Xray** را بزنید.
 5. دکمه **🛡 Windows Proxy: ON** را بزنید تا کل ترافیک سیستم وصل شود.
 

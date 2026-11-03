@@ -3,8 +3,10 @@
 package xray
 
 import (
+	"os"
 	"os/exec"
 	"syscall"
+	"time"
 )
 
 var (
@@ -18,6 +20,30 @@ func setProcAttr(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		HideWindow:    true,
 		CreationFlags: 0x08000000, // CREATE_NO_WINDOW
+	}
+}
+
+func terminateProcessGracefully(proc *os.Process) error {
+	if proc == nil {
+		return nil
+	}
+	// Try taskkill gracefully first
+	cmd := exec.Command("taskkill", "/PID", string(rune(proc.Pid)), "/T")
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
+	_ = cmd.Run()
+
+	done := make(chan error, 1)
+	go func() {
+		state, err := proc.Wait()
+		_ = state
+		done <- err
+	}()
+
+	select {
+	case <-done:
+		return nil
+	case <-time.After(1500 * time.Millisecond):
+		return proc.Kill()
 	}
 }
 

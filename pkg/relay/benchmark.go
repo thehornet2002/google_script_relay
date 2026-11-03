@@ -223,6 +223,14 @@ func RunSpeedBenchmark(client *http.Client, pool *EndpointPool, token string, on
 		}
 	}
 
+	if !crcVerified {
+		return SpeedResult{}, fmt.Errorf("benchmark data integrity check failed: CRC32 mismatch")
+	}
+
+	if offset != totalSize {
+		return SpeedResult{}, fmt.Errorf("incomplete benchmark transfer: received %d of %d bytes", offset, totalSize)
+	}
+
 	duration := time.Since(startTime)
 	if duration <= 0 {
 		duration = time.Millisecond
@@ -256,16 +264,17 @@ func RunSpeedBenchmark(client *http.Client, pool *EndpointPool, token string, on
 }
 
 // SendAdminCommand sends a management command to the VPS over the Google Script tunnel
-func SendAdminCommand(client *http.Client, pool *EndpointPool, token string, req AdminRequest) (*AdminResponse, error) {
+func SendAdminCommand(client *http.Client, pool *EndpointPool, adminToken string, req AdminRequest) (*AdminResponse, error) {
 	raw, err := json.Marshal(req)
 	if err != nil {
 		return nil, err
 	}
 
 	pkt := Packet{
-		SessionID: "__admin__",
-		Token:     token,
-		Data:      base64.StdEncoding.EncodeToString(raw),
+		SessionID:  "__admin__",
+		Token:      adminToken,
+		AdminToken: adminToken,
+		Data:       base64.StdEncoding.EncodeToString(raw),
 	}
 
 	resp, _, err := pool.SendPacket(client, pkt, nil)

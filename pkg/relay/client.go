@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -17,6 +18,11 @@ import (
 	"google_script_relay/pkg/xray"
 )
 
+const (
+	MaxReorderPackets = 128
+	MaxReorderBytes   = 8 * 1024 * 1024 // 8 MB reorder memory ceiling
+)
+
 type ClientSession struct {
 	id          string
 	tcpConn     net.Conn
@@ -24,10 +30,12 @@ type ClientSession struct {
 	wakeDown    chan struct{}
 	preferredEP *Endpoint
 	epMu        sync.RWMutex
+	uplinkRID   atomic.Uint64
 
-	reorderMu  sync.Mutex
-	nextSeq    uint64
-	reorderBuf map[uint64][]byte
+	reorderMu    sync.Mutex
+	nextSeq      uint64
+	reorderBuf   map[uint64][]byte
+	reorderBytes int
 
 	once sync.Once
 }
@@ -65,7 +73,7 @@ func (s *ClientSession) WriteInOrder(seq uint64, data []byte) error {
 	defer s.reorderMu.Unlock()
 
 	if s.closed.Load() {
-		return fmt.Errorf("session closed")
+		return errors.New("session closed")
 	}
 
 	if seq == 0 {
@@ -85,6 +93,7 @@ func (s *ClientSession) WriteInOrder(seq uint64, data []byte) error {
 				break
 			}
 			delete(s.reorderBuf, s.nextSeq)
+			s.reorderBytes -= len(nextData)
 			if _, err := s.tcpConn.Write(nextData); err != nil {
 				return err
 			}
@@ -94,7 +103,14 @@ func (s *ClientSession) WriteInOrder(seq uint64, data []byte) error {
 	}
 
 	if seq > s.nextSeq {
+		// Enforce safety limits against unbounded buffer growth
+		if len(s.reorderBuf) >= MaxReorderPackets || s.reorderBytes+len(data) > MaxReorderBytes {
+			s.Close()
+			return fmt.Errorf("reorder buffer capacity exceeded (packets: %d, bytes: %d)",
+				len(s.reorderBuf), s.reorderBytes+len(data))
+		}
 		s.reorderBuf[seq] = data
+		s.reorderBytes += len(data)
 	}
 	return nil
 }
@@ -105,6 +121,7 @@ type Client struct {
 	httpClient *http.Client
 	pool       *EndpointPool
 	xrayMgr    *xray.Manager
+	sessions   sync.Map // map[string]*ClientSession
 	tuningMu   sync.RWMutex
 	tuning     ClientTuning
 	running    atomic.Bool
@@ -134,34 +151,30 @@ func (c *Client) GetTuning() ClientTuning {
 	return c.tuning
 }
 
-func (c *Client) SetTuning(t ClientTuning) {
+func (c *Client) SetTuning(t ClientTuning) error {
+	if err := t.Validate(); err != nil {
+		return err
+	}
 	c.tuningMu.Lock()
 	defer c.tuningMu.Unlock()
-	if t.Workers < 1 {
-		t.Workers = 1
-	}
-	if t.Workers > 4 {
-		t.Workers = 4
-	}
-	if t.SocketBufferKB < 16 {
-		t.SocketBufferKB = 32
-	}
-	if t.UplinkChunkKB < 8 {
-		t.UplinkChunkKB = 16
-	}
 	c.tuning = t
 	c.log("[Client] Applied Tuning: Workers=%d, FastPoll=%dms, MaxIdle=%dms, Mux=%d",
 		t.Workers, t.DownlinkFastPollMs, t.DownlinkMaxIdleMs, t.MuxConcurrency)
+	return nil
 }
 
 func (c *Client) Start() error {
+	if err := c.cfg.Validate(); err != nil {
+		return fmt.Errorf("client configuration error: %w", err)
+	}
+
 	if c.cfg.ListenAddr == "" {
 		c.cfg.ListenAddr = "127.0.0.1:10800"
 	}
 
 	urls := c.cfg.GetGasURLs()
 	if len(urls) == 0 {
-		return fmt.Errorf("at least one Google Apps Script URL is required")
+		return errors.New("at least one Google Apps Script URL is required")
 	}
 
 	pool, err := NewEndpointPool(urls, c.log)
@@ -197,7 +210,7 @@ func (c *Client) Start() error {
 		}
 
 		c.xrayMgr = xray.NewManager(c.cfg.SocksPort, c.cfg.HttpPort, relayPort, c.GetTuning().MuxConcurrency, c.log)
-		if err := c.xrayMgr.Start(c.GetTuning().MuxConcurrency); err != nil {
+		if err := c.xrayMgr.Start(c.GetTuning().MuxConcurrency, c.cfg.XrayUUID); err != nil {
 			c.log("[Client] Warning: could not start integrated Xray core: %v", err)
 		}
 	}
@@ -224,6 +237,15 @@ func (c *Client) Start() error {
 
 func (c *Client) Stop() {
 	if c.running.CompareAndSwap(true, false) {
+		// Clean up all active sessions
+		c.sessions.Range(func(key, val any) bool {
+			if sess, ok := val.(*ClientSession); ok {
+				sess.Close()
+			}
+			c.sessions.Delete(key)
+			return true
+		})
+
 		if c.xrayMgr != nil {
 			c.xrayMgr.Stop()
 		}
@@ -311,7 +333,12 @@ func (c *Client) handleConnection(conn net.Conn) {
 		nextSeq:     1,
 		reorderBuf:  make(map[uint64][]byte),
 	}
-	defer sess.Close()
+	c.sessions.Store(sessionID, sess)
+
+	defer func() {
+		sess.Close()
+		c.sessions.Delete(sessionID)
+	}()
 
 	c.log("[Client] New session %s via %s (Workers=%d)", sessionID, initialEP.ShortName(), tuning.Workers)
 
@@ -334,10 +361,13 @@ func (c *Client) handleConnection(conn net.Conn) {
 	for !sess.closed.Load() && c.running.Load() {
 		n, err := conn.Read(buf)
 		if n > 0 {
+			rid := sess.uplinkRID.Add(1)
 			reqPacket := Packet{
-				SessionID: sess.id,
-				Token:     c.cfg.Token,
-				Data:      base64.StdEncoding.EncodeToString(buf[:n]),
+				SessionID:  sess.id,
+				RequestID:  rid,
+				Token:      c.cfg.Token,
+				SessionSig: ComputeSessionBindingHMAC(c.cfg.Token, sess.id),
+				Data:       base64.StdEncoding.EncodeToString(buf[:n]),
 			}
 
 			currentEP := sess.GetEndpoint()
@@ -366,9 +396,10 @@ func (c *Client) handleConnection(conn net.Conn) {
 
 		if err != nil {
 			_, _, _ = c.pool.SendPacket(c.httpClient, Packet{
-				SessionID: sess.id,
-				Token:     c.cfg.Token,
-				Close:     true,
+				SessionID:  sess.id,
+				Token:      c.cfg.Token,
+				SessionSig: ComputeSessionBindingHMAC(c.cfg.Token, sess.id),
+				Close:      true,
 			}, sess.GetEndpoint())
 			sess.Close()
 			break
@@ -387,8 +418,9 @@ func (c *Client) downlinkWorker(sess *ClientSession, workerID int) {
 	for !sess.closed.Load() && c.running.Load() {
 		tuning = c.GetTuning()
 		reqPacket := Packet{
-			SessionID: sess.id,
-			Token:     c.cfg.Token,
+			SessionID:  sess.id,
+			Token:      c.cfg.Token,
+			SessionSig: ComputeSessionBindingHMAC(c.cfg.Token, sess.id),
 		}
 
 		currentEP := sess.GetEndpoint()
@@ -422,10 +454,12 @@ func (c *Client) downlinkWorker(sess *ClientSession, workerID int) {
 			backoff = time.Duration(tuning.DownlinkFastPollMs) * time.Millisecond
 		} else {
 			maxIdle := time.Duration(tuning.DownlinkMaxIdleMs) * time.Millisecond
+			timer := time.NewTimer(backoff)
 			select {
 			case <-sess.wakeDown:
+				timer.Stop()
 				backoff = time.Duration(tuning.DownlinkFastPollMs) * time.Millisecond
-			case <-time.After(backoff):
+			case <-timer.C:
 				if backoff < maxIdle {
 					if backoff == 0 {
 						backoff = 25 * time.Millisecond
@@ -480,7 +514,7 @@ func buildHTTPClient(frontDomain, frontIP string) *http.Client {
 		Timeout:   35 * time.Second,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= 10 {
-				return fmt.Errorf("too many redirects")
+				return errors.New("too many redirects")
 			}
 			return nil
 		},

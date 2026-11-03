@@ -4,7 +4,9 @@
  * Instructions:
  * 1. Go to https://script.google.com and create a new project.
  * 2. Paste this code into Code.gs.
- * 3. Replace VPS_URL with your VPS server endpoint (e.g. http://YOUR_VPS_IP:8888/tunnel).
+ * 3. Replace VPS_URL with your secure VPS HTTPS endpoint (e.g. https://relay.yourdomain.com/tunnel).
+ *    Note: For production security, always put an HTTPS reverse proxy (Caddy / Nginx) in front of
+ *    your VPS relay server to ensure the link between Google servers and your VPS is fully encrypted.
  * 4. Click "Deploy" -> "New deployment".
  * 5. Select type: "Web app".
  * 6. Execute as: "Me".
@@ -12,7 +14,7 @@
  * 8. Click "Deploy" and copy the Web App URL (starts with https://script.google.com/macros/s/.../exec).
  */
 
-var VPS_URL = "http://YOUR_VPS_IP:8888/tunnel";
+var VPS_URL = "https://YOUR_DOMAIN_OR_VPS_IP/tunnel";
 
 function doPost(e) {
   try {

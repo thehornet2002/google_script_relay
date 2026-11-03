@@ -7,16 +7,46 @@ on:
   workflow_dispatch:
     inputs:
       tag_name:
-        description: 'Release tag name (e.g. v1.0.1)'
-        required: false
-        default: 'v1.0.1'
+        description: 'Release tag name (e.g. v1.1.0)'
+        required: true
 
 permissions:
   contents: write
 
 jobs:
+  qa-test:
+    name: Code Quality & Race Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22.8'
+          check-latest: false
+
+      - name: Code Formatting Check
+        run: |
+          diff_files=$(gofmt -l .)
+          if [ -n "$diff_files" ]; then
+            echo "Unformatted files found:"
+            echo "$diff_files"
+            exit 1
+          fi
+
+      - name: Go Vet
+        run: |
+          go vet ./...
+
+      - name: Run Unit Tests with Race Detector
+        run: |
+          go test -v -race ./...
+
   build-windows-gui:
     name: Build Windows GUI (amd64)
+    needs: [qa-test]
     runs-on: windows-latest
     steps:
       - name: Checkout repository
@@ -25,8 +55,8 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
-          check-latest: true
+          go-version: '1.22.8'
+          check-latest: false
 
       - name: Compile Windows resource manifest (Common Controls v6)
         shell: bash
@@ -43,7 +73,7 @@ jobs:
         run: |
           mkdir -p dist/windows-gui/bin
           mkdir -p dist/windows-gui/config
-          curl -sL "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-windows-64.zip" -o xray.zip
+          curl -sL "https://github.com/XTLS/Xray-core/releases/download/v1.8.24/Xray-windows-64.zip" -o xray.zip
           unzip -q xray.zip xray.exe -d dist/windows-gui/bin/
           rm xray.zip
           cp config/client_config.example.json dist/windows-gui/client_config.json
@@ -66,6 +96,7 @@ jobs:
 
   build-cross-gui:
     name: Build Desktop GUI for Linux & macOS
+    needs: [qa-test]
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -91,8 +122,8 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
-          check-latest: true
+          go-version: '1.22.8'
+          check-latest: false
 
       - name: Build Desktop GUI Binary
         env:
@@ -123,6 +154,7 @@ jobs:
 
   build-cross-cli-server:
     name: Build CLI & Server Targets
+    needs: [qa-test]
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -168,8 +200,8 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
-          check-latest: true
+          go-version: '1.22.8'
+          check-latest: false
 
       - name: Build Binary
         env:

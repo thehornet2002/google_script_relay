@@ -59,6 +59,12 @@ type INITCOMMONCONTROLSEX struct {
 	DwICC  uint32
 }
 
+type NMHDR struct {
+	HwndFrom uintptr
+	IdFrom   uintptr
+	Code     uint32
+}
+
 type TCITEMW struct {
 	Mask        uint32
 	DwState     uint32
@@ -494,7 +500,7 @@ func buildModernInterface(hWnd, hInstance uintptr) {
 	t2(createCtrl("BUTTON", "Authentication & Domain Fronting Settings", WS_CHILD|WS_VISIBLE|BS_GROUPBOX, 35, 320, 685, 175, 0, hFontRegular))
 
 	t2(createCtrl("STATIC", "Shared Auth Token:", WS_CHILD|WS_VISIBLE, 50, 350, 150, 20, 0, hFontRegular))
-	hEditToken = createCtrl("EDIT", "IK13eIodrB24", WS_CHILD|WS_VISIBLE|WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL, 205, 348, 250, 24, 0, hFontBold)
+	hEditToken = createCtrl("EDIT", "", WS_CHILD|WS_VISIBLE|WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL, 205, 348, 250, 24, 0, hFontBold)
 	t2(hEditToken)
 
 	t2(createCtrl("STATIC", "Domain Fronting SNI:", WS_CHILD|WS_VISIBLE, 50, 385, 150, 20, 0, hFontRegular))
@@ -690,11 +696,10 @@ func saveCurrentConfig() {
 		return
 	}
 
-	_ = os.MkdirAll(filepath.Dir(configPath), 0755)
-	if err := os.WriteFile(configPath, data, 0644); err != nil {
+	if err := relay.AtomicWriteSecureConfigFile(configPath, data); err != nil {
 		appendLog(fmt.Sprintf("Failed to save config: %v", err))
 	} else {
-		appendLog(fmt.Sprintf("Saved configuration to %s (%d accounts)", configPath, len(cfg.GasURLs)))
+		appendLog(fmt.Sprintf("Saved configuration securely to %s (%d accounts)", configPath, len(cfg.GasURLs)))
 		setControlText(hCardMetricAcc, fmt.Sprintf("%d Accounts", len(cfg.GasURLs)))
 	}
 }
@@ -710,6 +715,13 @@ func startRelay() {
 	cfg := collectCurrentConfig()
 	if len(cfg.GasURLs) == 0 {
 		appendLog("Error: Please provide at least one Google Apps Script Web App URL in Tab 3!")
+		setControlText(hLblDashStatus, "● Error: Missing Google Script URLs (check Tab 3)")
+		switchTab(2)
+		return
+	}
+	if strings.TrimSpace(cfg.Token) == "" {
+		appendLog("Error: Auth Token cannot be empty!")
+		setControlText(hLblDashStatus, "● Error: Auth Token cannot be empty")
 		switchTab(2)
 		return
 	}
@@ -721,6 +733,7 @@ func startRelay() {
 
 	if err := relayClient.Start(); err != nil {
 		appendLog(fmt.Sprintf("Failed to start relay: %v", err))
+		setControlText(hLblDashStatus, fmt.Sprintf("● Start Failed: %v", err))
 		relayClient = nil
 		return
 	}
@@ -1030,14 +1043,10 @@ func setProfile(p relay.ProfileType) {
 	}
 }
 
-func wndProc(hWnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
+func wndProc(hWnd uintptr, msg uint32, wParam uintptr, lParam unsafe.Pointer) uintptr {
 	switch msg {
 	case WM_NOTIFY:
-		nmhdr := (*struct {
-			HwndFrom uintptr
-			IdFrom   uintptr
-			Code     uint32
-		})(unsafe.Pointer(lParam))
+		nmhdr := (*NMHDR)(lParam)
 
 		if nmhdr.IdFrom == ID_TAB_MAIN && nmhdr.Code == TCN_SELCHANGE {
 			idx, _, _ := procSendMessageW.Call(hTabCtrl, TCM_GETCURSEL, 0, 0)
@@ -1105,7 +1114,7 @@ func wndProc(hWnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 		procPostQuitMessage.Call(0)
 		return 0
 	}
-	ret, _, _ := procDefWindowProcW.Call(hWnd, uintptr(msg), wParam, lParam)
+	ret, _, _ := procDefWindowProcW.Call(hWnd, uintptr(msg), wParam, uintptr(lParam))
 	return ret
 }
 

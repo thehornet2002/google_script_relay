@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -57,7 +58,7 @@ func (a *NonWindowsApp) init() {
 	cfg := relay.Config{
 		Mode:       "client",
 		ListenAddr: "127.0.0.1:10800",
-		Token:      "IK13eIodrB24",
+		Token:      "",
 		SocksPort:  10808,
 		HttpPort:   10809,
 		StartXray:  true,
@@ -75,11 +76,11 @@ func (a *NonWindowsApp) init() {
 		log.Printf(format, args...)
 	}
 
-	if len(cfg.GetGasURLs()) > 0 {
+	if len(cfg.GetGasURLs()) > 0 && cfg.Token != "" {
 		_ = a.client.Start()
 	}
 
-	// Find free local port for UI server
+	// Find free local port on loopback only
 	uiPort := 10850
 	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", uiPort))
 	if err != nil {
@@ -114,7 +115,6 @@ func (a *NonWindowsApp) init() {
 	// Launch native desktop standalone window
 	go a.openNativeWindow(url)
 
-	// Block main thread until signal or exit
 	select {}
 }
 
@@ -142,7 +142,7 @@ func (a *NonWindowsApp) openNativeWindow(url string) {
 		)
 	}
 
-	// Try launching in standalone app mode (no browser address bar/tabs)
+	// Try launching in standalone app mode (no browser navigation bar/tabs)
 	for _, bin := range candidates {
 		path, err := exec.LookPath(bin)
 		if err == nil {
@@ -158,7 +158,7 @@ func (a *NonWindowsApp) openNativeWindow(url string) {
 		}
 	}
 
-	// Fallback to default OS opener if no Chromium-based app mode was found
+	// Fallback to default OS browser
 	if runtime.GOOS == "darwin" {
 		_ = exec.Command("open", url).Start()
 	} else {
@@ -182,10 +182,7 @@ func (a *NonWindowsApp) handleStatus(w http.ResponseWriter, r *http.Request) {
 	if a.client != nil {
 		cTuning = a.client.GetTuning()
 	}
-	urlsCount := 0
-	if a.client != nil && a.client.GetEndpointPool() != nil {
-		urlsCount = len(a.cfg.GetGasURLs())
-	}
+	urlsCount := len(a.cfg.GetGasURLs())
 	a.relayMutex.Unlock()
 
 	type StatusRes struct {
@@ -194,6 +191,7 @@ func (a *NonWindowsApp) handleStatus(w http.ResponseWriter, r *http.Request) {
 		Tuning      relay.ClientTuning `json:"tuning"`
 		OptRunning  bool               `json:"opt_running"`
 		Accounts    int                `json:"accounts"`
+		Config      relay.Config       `json:"config"`
 		OS          string             `json:"os"`
 	}
 
@@ -203,6 +201,7 @@ func (a *NonWindowsApp) handleStatus(w http.ResponseWriter, r *http.Request) {
 		Tuning:      cTuning,
 		OptRunning:  a.optActive.Load(),
 		Accounts:    urlsCount,
+		Config:      a.cfg,
 		OS:          runtime.GOOS,
 	}
 
@@ -211,17 +210,32 @@ func (a *NonWindowsApp) handleStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *NonWindowsApp) handleStart(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	a.relayMutex.Lock()
 	defer a.relayMutex.Unlock()
 
-	if a.client == nil || !a.client.IsRunning() {
-		_ = a.client.Start()
-	}
 	w.Header().Set("Content-Type", "application/json")
-	_, _ = w.Write([]byte(`{"success":true}`))
+	if a.client == nil || !a.client.IsRunning() {
+		if a.client == nil {
+			a.client = relay.NewClient(&a.cfg)
+		}
+		if err := a.client.Start(); err != nil {
+			w.WriteHeader(http.StatusBadGateway)
+			_ = json.NewEncoder(w).Encode(map[string]any{"success": false, "error": err.Error()})
+			return
+		}
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{"success": true})
 }
 
 func (a *NonWindowsApp) handleStop(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	a.relayMutex.Lock()
 	defer a.relayMutex.Unlock()
 
@@ -233,6 +247,10 @@ func (a *NonWindowsApp) handleStop(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *NonWindowsApp) handleTuneStart(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	if a.optActive.Load() {
 		http.Error(w, "Optimization already running", http.StatusConflict)
 		return
@@ -261,6 +279,12 @@ func (a *NonWindowsApp) handleTuneStart(w http.ResponseWriter, r *http.Request) 
 		})
 		a.stateMu.Lock()
 		a.lastReport = report
+		if report != nil {
+			a.cfg.ClientTuning = &report.BestClient
+			a.cfg.ServerTuning = &report.BestServer
+			out, _ := json.MarshalIndent(a.cfg, "", "  ")
+			_ = relay.AtomicWriteSecureConfigFile(a.configPath, out)
+		}
 		a.stateMu.Unlock()
 	}()
 
@@ -289,40 +313,78 @@ func (a *NonWindowsApp) handleTuneStatus(w http.ResponseWriter, r *http.Request)
 }
 
 func (a *NonWindowsApp) handleQuickPing(w http.ResponseWriter, r *http.Request) {
-	if a.client == nil || !a.client.IsRunning() {
-		_ = a.client.Start()
-	}
-	res, _ := relay.RunPingBenchmark(a.client.GetHTTPClient(), a.client.GetEndpointPool(), a.cfg.Token, 6)
 	w.Header().Set("Content-Type", "application/json")
+	if a.client == nil || !a.client.IsRunning() {
+		if err := a.client.Start(); err != nil {
+			w.WriteHeader(http.StatusBadGateway)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": err.Error()})
+			return
+		}
+	}
+	res, err := relay.RunPingBenchmark(a.client.GetHTTPClient(), a.client.GetEndpointPool(), a.cfg.Token, 6)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]any{"error": err.Error()})
+		return
+	}
 	_ = json.NewEncoder(w).Encode(res)
 }
 
 func (a *NonWindowsApp) handleQuickSpeed(w http.ResponseWriter, r *http.Request) {
-	if a.client == nil || !a.client.IsRunning() {
-		_ = a.client.Start()
-	}
-	res, _ := relay.RunSpeedBenchmark(a.client.GetHTTPClient(), a.client.GetEndpointPool(), a.cfg.Token, nil)
 	w.Header().Set("Content-Type", "application/json")
+	if a.client == nil || !a.client.IsRunning() {
+		if err := a.client.Start(); err != nil {
+			w.WriteHeader(http.StatusBadGateway)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": err.Error()})
+			return
+		}
+	}
+	res, err := relay.RunSpeedBenchmark(a.client.GetHTTPClient(), a.client.GetEndpointPool(), a.cfg.Token, nil)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]any{"error": err.Error()})
+		return
+	}
 	_ = json.NewEncoder(w).Encode(res)
 }
 
 func (a *NonWindowsApp) handleConfig(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
 	if r.Method == http.MethodGet {
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(a.client.GetTuning())
+		_ = json.NewEncoder(w).Encode(a.cfg)
 		return
 	}
 	if r.Method == http.MethodPost {
-		var cfg relay.Config
-		if err := json.NewDecoder(r.Body).Decode(&cfg); err == nil {
-			if cfg.ClientTuning != nil {
-				a.client.SetTuning(*cfg.ClientTuning)
-			}
-			out, _ := json.MarshalIndent(cfg, "", "  ")
-			_ = os.WriteFile(a.configPath, out, 0644)
+		var newCfg relay.Config
+		if err := json.NewDecoder(r.Body).Decode(&newCfg); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"success":true}`))
+		newCfg.EnsureDefaults()
+		if err := newCfg.Validate(); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{"success": false, "error": err.Error()})
+			return
+		}
+
+		a.relayMutex.Lock()
+		a.cfg = newCfg
+		if a.client != nil {
+			if newCfg.ClientTuning != nil {
+				_ = a.client.SetTuning(*newCfg.ClientTuning)
+			}
+		}
+		out, _ := json.MarshalIndent(newCfg, "", "  ")
+		saveErr := relay.AtomicWriteSecureConfigFile(a.configPath, out)
+		a.relayMutex.Unlock()
+
+		if saveErr != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]any{"success": false, "error": saveErr.Error()})
+			return
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true})
 	}
 }
 
@@ -365,7 +427,11 @@ const desktopHTML = `<!DOCTYPE html>
     .btn-active { border-color: var(--primary); color: var(--primary); }
     .progress-wrap { width: 100%; height: 8px; background: #0f121d; border-radius: 999px; overflow: hidden; margin: 12px 0; }
     .progress-bar { height: 100%; background: var(--primary); width: 0%; transition: width 0.3s; }
-    .log-area { width: 100%; height: 260px; background: #0a0d14; border: 1px solid var(--card-border); border-radius: 8px; padding: 12px; color: #a5b4fc; font-family: monospace; font-size: 12px; resize: none; }
+    .input-field { width: 100%; padding: 10px; background: #0a0d14; border: 1px solid var(--card-border); border-radius: 8px; color: #a5b4fc; font-size: 13px; margin-bottom: 12px; }
+    .log-area { width: 100%; height: 140px; background: #0a0d14; border: 1px solid var(--card-border); border-radius: 8px; padding: 12px; color: #a5b4fc; font-family: monospace; font-size: 12px; resize: vertical; margin-bottom: 12px; }
+    .toast { padding: 8px 14px; border-radius: 6px; font-size: 13px; margin-bottom: 12px; display: none; }
+    .toast-err { background: rgba(239, 68, 68, 0.2); border: 1px solid var(--danger); color: #fca5a5; }
+    .toast-ok { background: rgba(16, 185, 129, 0.2); border: 1px solid var(--success); color: #86efac; }
   </style>
 </head>
 <body>
@@ -374,6 +440,8 @@ const desktopHTML = `<!DOCTYPE html>
       <div class="title">⚡ Xray Google Script Relay</div>
       <div id="statusBadge" class="badge badge-off">Stopped</div>
     </div>
+
+    <div id="toast" class="toast"></div>
 
     <div class="tabs">
       <button class="tab-btn active" onclick="showTab(0)">🚀 Dashboard</button>
@@ -405,7 +473,7 @@ const desktopHTML = `<!DOCTYPE html>
           <button class="btn btn-danger" onclick="stopRelay()">⏹ Stop Relay</button>
         </div>
         <div style="font-size: 13px; color: var(--text-muted);">
-          Endpoints: <code>SOCKS5: 127.0.0.1:10808</code> | <code>HTTP: 127.0.0.1:10809</code>
+          Local Endpoints: <code>SOCKS5: 127.0.0.1:10808</code> | <code>HTTP: 127.0.0.1:10809</code>
         </div>
       </div>
 
@@ -424,7 +492,11 @@ const desktopHTML = `<!DOCTYPE html>
           <button id="pSpeed" class="btn btn-outline" onclick="setProfile('speed')">2. Best Speed</button>
           <button id="pBal" class="btn btn-outline btn-active" onclick="setProfile('balanced')">3. Balanced [*]</button>
         </div>
-        <button class="btn btn-primary" onclick="startTune()">⚡ Run Two-Stage Optimization</button>
+        <div style="display: flex; gap: 8px; margin-bottom: 14px;">
+          <button class="btn btn-primary" onclick="startTune()">⚡ Run Two-Stage Optimization</button>
+          <button class="btn btn-outline" onclick="quickPing()">📶 Quick Ping</button>
+          <button class="btn btn-outline" onclick="quickSpeed()">📥 Quick 4MB Download</button>
+        </div>
 
         <div class="progress-wrap"><div id="tuneProg" class="progress-bar"></div></div>
         <div id="tuneDesc" style="font-size: 12px; color: var(--text-muted); margin-top: 6px;">Idle. Select profile and start.</div>
@@ -434,37 +506,185 @@ const desktopHTML = `<!DOCTYPE html>
     <!-- Tab 2: Accounts -->
     <div id="tab2" style="display: none;">
       <div class="card">
-        <div style="font-size: 13px; font-weight: 600; margin-bottom: 8px;">Google Apps Script Web App URLs</div>
-        <textarea id="editUrls" class="log-area" style="height: 140px;"></textarea>
+        <div style="font-size: 13px; font-weight: 600; margin-bottom: 8px;">Google Apps Script Web App URLs (one per line)</div>
+        <textarea id="editUrls" class="log-area" placeholder="https://script.google.com/macros/s/.../exec"></textarea>
+
+        <div style="font-size: 13px; font-weight: 600; margin-bottom: 6px;">Auth Token</div>
+        <input id="editToken" class="input-field" type="text" placeholder="Enter secure shared token">
+
+        <div style="font-size: 13px; font-weight: 600; margin-bottom: 6px;">Domain Fronting SNI</div>
+        <input id="editFront" class="input-field" type="text" placeholder="fcm.googleapis.com">
+
+        <div style="font-size: 13px; font-weight: 600; margin-bottom: 6px;">Clean Google IP (Optional)</div>
+        <input id="editFrontIP" class="input-field" type="text" placeholder="142.250.180.188:443">
+
+        <button class="btn btn-primary" onclick="saveAccounts()">💾 Save Accounts & Security</button>
       </div>
     </div>
 
     <!-- Tab 3: Dials -->
     <div id="tab3" style="display: none;">
       <div class="card">
-        <div style="font-size: 13px; font-weight: 600; margin-bottom: 8px;">Engine Parameters</div>
-        <div style="font-size: 13px; color: var(--text-muted);">Configure Workers, Hold times, and Mux concurrency.</div>
+        <div style="font-size: 13px; font-weight: 600; margin-bottom: 12px;">Engine Performance Tuning Dials</div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+          <div>
+            <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">Downlink Workers (1 - 4)</div>
+            <input id="dialWorkers" class="input-field" type="number" min="1" max="4" value="2">
+          </div>
+          <div>
+            <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">Fast Poll Delay (ms, 0 - 30)</div>
+            <input id="dialFastPoll" class="input-field" type="number" min="0" max="30" value="5">
+          </div>
+          <div>
+            <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">Max Idle Delay (ms, 100 - 1500)</div>
+            <input id="dialMaxIdle" class="input-field" type="number" min="100" max="1500" value="600">
+          </div>
+          <div>
+            <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">Xray Mux Concurrency (0, 4, 8, 16)</div>
+            <input id="dialMux" class="input-field" type="number" min="0" max="32" value="8">
+          </div>
+        </div>
+
+        <button class="btn btn-primary" style="margin-top: 10px;" onclick="saveDials()">💾 Apply & Save Tuning</button>
       </div>
     </div>
   </div>
 
   <script>
     let activeProfile = 'balanced';
+    let currentConfig = {};
+
+    function showToast(msg, isError) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.className = 'toast ' + (isError ? 'toast-err' : 'toast-ok');
+      t.style.display = 'block';
+      setTimeout(() => { t.style.display = 'none'; }, 4000);
+    }
+
     function showTab(n) {
       for (let i = 0; i < 4; i++) {
         document.getElementById('tab' + i).style.display = (i === n) ? 'block' : 'none';
         document.querySelectorAll('.tab-btn')[i].classList.toggle('active', i === n);
       }
     }
+
     function setProfile(p) {
       activeProfile = p;
       document.getElementById('pPing').classList.toggle('btn-active', p === 'ping');
       document.getElementById('pSpeed').classList.toggle('btn-active', p === 'speed');
       document.getElementById('pBal').classList.toggle('btn-active', p === 'balanced');
     }
-    async function startRelay() { await fetch('/api/start'); updateStatus(); }
-    async function stopRelay() { await fetch('/api/stop'); updateStatus(); }
-    async function startTune() { await fetch('/api/tune/start?profile=' + activeProfile); }
+
+    async function startRelay() {
+      try {
+        const res = await fetch('/api/start', { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+          showToast('Relay and Xray started successfully!', false);
+        } else {
+          showToast('Start failed: ' + (data.error || 'Unknown error'), true);
+        }
+        updateStatus();
+      } catch (e) {
+        showToast('Start request error: ' + e.message, true);
+      }
+    }
+
+    async function stopRelay() {
+      try {
+        await fetch('/api/stop', { method: 'POST' });
+        showToast('Relay stopped.', false);
+        updateStatus();
+      } catch (e) {
+        showToast('Stop error: ' + e.message, true);
+      }
+    }
+
+    async function startTune() {
+      try {
+        await fetch('/api/tune/start?profile=' + activeProfile, { method: 'POST' });
+        showToast('Two-Stage Matrix Optimization started...', false);
+      } catch (e) {
+        showToast('Tune error: ' + e.message, true);
+      }
+    }
+
+    async function quickPing() {
+      try {
+        showToast('Probing latency...', false);
+        const res = await fetch('/api/tune/ping');
+        const data = await res.json();
+        if (data.error) showToast(data.error, true);
+        else showToast('Ping probe: ' + data.median_ms.toFixed(1) + ' ms (Loss: ' + (data.loss_rate*100).toFixed(0) + '%)', false);
+      } catch (e) {
+        showToast('Ping error: ' + e.message, true);
+      }
+    }
+
+    async function quickSpeed() {
+      try {
+        showToast('Testing 4MB throughput...', false);
+        const res = await fetch('/api/tune/speed');
+        const data = await res.json();
+        if (data.error) showToast(data.error, true);
+        else showToast('Throughput: ' + data.speed_mbps.toFixed(2) + ' MB/s (' + data.speed_mbps_net.toFixed(1) + ' Mbps)', false);
+      } catch (e) {
+        showToast('Speed error: ' + e.message, true);
+      }
+    }
+
+    async function saveAccounts() {
+      const urls = document.getElementById('editUrls').value.split('\n').map(s => s.trim()).filter(Boolean);
+      const token = document.getElementById('editToken').value.trim();
+      const front = document.getElementById('editFront').value.trim();
+      const frontIP = document.getElementById('editFrontIP').value.trim();
+
+      currentConfig.gas_urls = urls;
+      currentConfig.token = token;
+      currentConfig.front_domain = front;
+      currentConfig.front_ip = frontIP;
+
+      try {
+        const res = await fetch('/api/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(currentConfig)
+        });
+        const data = await res.json();
+        if (data.success) showToast('Accounts configuration saved securely!', false);
+        else showToast('Save failed: ' + (data.error || 'Unknown'), true);
+      } catch (e) {
+        showToast('Save error: ' + e.message, true);
+      }
+    }
+
+    async function saveDials() {
+      const workers = parseInt(document.getElementById('dialWorkers').value) || 2;
+      const fastPoll = parseInt(document.getElementById('dialFastPoll').value) || 5;
+      const maxIdle = parseInt(document.getElementById('dialMaxIdle').value) || 600;
+      const mux = parseInt(document.getElementById('dialMux').value) || 8;
+
+      if (!currentConfig.client_tuning) currentConfig.client_tuning = {};
+      currentConfig.client_tuning.workers = workers;
+      currentConfig.client_tuning.downlink_fast_poll_ms = fastPoll;
+      currentConfig.client_tuning.downlink_max_idle_ms = maxIdle;
+      currentConfig.client_tuning.mux_concurrency = mux;
+
+      try {
+        const res = await fetch('/api/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(currentConfig)
+        });
+        const data = await res.json();
+        if (data.success) showToast('Tuning dials applied and saved!', false);
+        else showToast('Save failed: ' + (data.error || 'Unknown'), true);
+      } catch (e) {
+        showToast('Save error: ' + e.message, true);
+      }
+    }
 
     async function updateStatus() {
       try {
@@ -475,6 +695,22 @@ const desktopHTML = `<!DOCTYPE html>
         badge.className = 'badge ' + (data.running ? 'badge-on' : 'badge-off');
         document.getElementById('valAccounts').textContent = data.accounts;
         document.getElementById('poolStatus').textContent = data.pool_summary || 'Pool active.';
+
+        if (data.config) {
+          currentConfig = data.config;
+          if (!document.getElementById('editUrls').matches(':focus')) {
+            document.getElementById('editUrls').value = (data.config.gas_urls || []).join('\n');
+            document.getElementById('editToken').value = data.config.token || '';
+            document.getElementById('editFront').value = data.config.front_domain || '';
+            document.getElementById('editFrontIP').value = data.config.front_ip || '';
+          }
+          if (data.config.client_tuning) {
+            document.getElementById('dialWorkers').value = data.config.client_tuning.workers || 2;
+            document.getElementById('dialFastPoll').value = data.config.client_tuning.downlink_fast_poll_ms || 5;
+            document.getElementById('dialMaxIdle').value = data.config.client_tuning.downlink_max_idle_ms || 600;
+            document.getElementById('dialMux').value = data.config.client_tuning.mux_concurrency || 8;
+          }
+        }
       } catch (e) {}
 
       try {
@@ -489,10 +725,13 @@ const desktopHTML = `<!DOCTYPE html>
           if (s.Speed && s.Speed.speed_mbps) document.getElementById('valSpeed').textContent = s.Speed.speed_mbps.toFixed(2) + ' MB/s';
         } else if (data.last_report) {
           document.getElementById('tuneProg').style.width = '100%';
-          document.getElementById('tuneDesc').textContent = 'Complete! Optimal: ' + data.last_report.BestCandidate.Name;
+          document.getElementById('tuneDesc').textContent = 'Complete! Winning Archetype: ' + data.last_report.BestCandidate.Name;
+          if (data.last_report.BestPing) document.getElementById('valPing').textContent = data.last_report.BestPing.median_ms.toFixed(1) + ' ms';
+          if (data.last_report.BestSpeed) document.getElementById('valSpeed').textContent = data.last_report.BestSpeed.speed_mbps.toFixed(2) + ' MB/s';
         }
       } catch (e) {}
     }
+
     setInterval(updateStatus, 1500);
     updateStatus();
   </script>

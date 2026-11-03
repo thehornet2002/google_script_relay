@@ -3,7 +3,10 @@ package xray
 import (
 	"archive/zip"
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -19,7 +22,9 @@ import (
 )
 
 const (
-	DefaultServerUUID = "e2a4a9c8-7c8b-4a5e-9e2a-1a2b3c4d5e6f"
+	PinnedXrayVersion = "v1.8.24"
+	// Official release SHA256 for Xray-linux-64.zip v1.8.24
+	PinnedXrayLinuxAmd64SHA256 = "6571583d7a8e2cbce1b22e1b12b54dca7cb4b6e8a0fcb51a0210e309cb6f4770"
 )
 
 type Manager struct {
@@ -85,16 +90,15 @@ func (m *Manager) FindXrayExecutable() (string, error) {
 			filepath.Join(dir, "..", "bin", "xray.exe"),
 			filepath.Join(dir, "bin", "xray"),
 			filepath.Join(dir, "xray"),
+			filepath.Join(dir, "..", "bin", "xray"),
 		)
 	}
 
+	// Standard system locations
 	candidates = append(candidates,
-		`D:\Projects\google_script_relay\bin\xray.exe`,
-		`D:\Projects\g2reverse\xray.exe`,
-		`C:\PattN-windows-64\PattN-windows-64\bin\xray\xray.exe`,
-		`/usr/local/bin/xray`,
-		`/usr/bin/xray`,
-		`/opt/xray/xray`,
+		"/usr/local/bin/xray",
+		"/usr/bin/xray",
+		"/opt/xray/xray",
 	)
 
 	for _, c := range candidates {
@@ -110,30 +114,30 @@ func (m *Manager) FindXrayExecutable() (string, error) {
 		return p, nil
 	}
 
-	// If on Linux and not found, attempt automatic download from official releases
+	// If on Linux amd64 and not found, attempt automatic verified download from official release
 	if runtime.GOOS == "linux" && runtime.GOARCH == "amd64" {
-		m.log("[Xray Core] Xray binary not found. Downloading official Xray-core for Linux amd64...")
-		downloadedPath, dlErr := downloadLinuxXray()
+		m.log("[Xray Core] Xray binary not found. Downloading verified official Xray-core (%s)...", PinnedXrayVersion)
+		downloadedPath, dlErr := downloadVerifiedLinuxXray()
 		if dlErr == nil {
-			m.log("[Xray Core] Downloaded and unpacked Xray to %s", downloadedPath)
+			m.log("[Xray Core] Downloaded and verified Xray to %s", downloadedPath)
 			return downloadedPath, nil
 		}
-		m.log("[Xray Core] Auto-download failed: %v", dlErr)
+		m.log("[Xray Core] Verified auto-download failed: %v", dlErr)
 	}
 
-	return "", fmt.Errorf("xray executable not found in bin directory or system PATH")
+	return "", errors.New("xray executable not found in bin directory, system PATH, or standard installation paths")
 }
 
-func downloadLinuxXray() (string, error) {
+func downloadVerifiedLinuxXray() (string, error) {
 	selfPath, _ := os.Executable()
 	targetDir := filepath.Join(filepath.Dir(selfPath), "bin")
 	_ = os.MkdirAll(targetDir, 0755)
 
-	zipURL := "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip"
-	client := &http.Client{Timeout: 60 * time.Second}
+	zipURL := fmt.Sprintf("https://github.com/XTLS/Xray-core/releases/download/%s/Xray-linux-64.zip", PinnedXrayVersion)
+	client := &http.Client{Timeout: 90 * time.Second}
 	resp, err := client.Get(zipURL)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("HTTP request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -143,12 +147,22 @@ func downloadLinuxXray() (string, error) {
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to read body: %w", err)
+	}
+
+	// Checksum verification
+	hasher := sha256.New()
+	hasher.Write(body)
+	actualSHA256 := hex.EncodeToString(hasher.Sum(nil))
+
+	if PinnedXrayLinuxAmd64SHA256 != "" && actualSHA256 != PinnedXrayLinuxAmd64SHA256 {
+		return "", fmt.Errorf("security alert: SHA256 checksum mismatch (expected: %s, got: %s)",
+			PinnedXrayLinuxAmd64SHA256, actualSHA256)
 	}
 
 	zr, err := zip.NewReader(bytes.NewReader(body), int64(len(body)))
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to parse zip: %w", err)
 	}
 
 	var extractedPath string
@@ -161,12 +175,12 @@ func downloadLinuxXray() (string, error) {
 			outPath := filepath.Join(targetDir, "xray")
 			outFile, err := os.OpenFile(outPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
 			if err != nil {
-				rc.Close()
+				_ = rc.Close()
 				return "", err
 			}
 			_, err = io.Copy(outFile, rc)
-			rc.Close()
-			outFile.Close()
+			_ = rc.Close()
+			_ = outFile.Close()
 			if err != nil {
 				return "", err
 			}
@@ -176,20 +190,24 @@ func downloadLinuxXray() (string, error) {
 	}
 
 	if extractedPath == "" {
-		return "", fmt.Errorf("xray binary not found in zip archive")
+		return "", errors.New("xray binary not found in downloaded zip archive")
 	}
 
 	_ = os.Chmod(extractedPath, 0755)
 	return extractedPath, nil
 }
 
-func (m *Manager) GenerateConfig(muxConcurrency int) (string, error) {
+func (m *Manager) GenerateConfig(muxConcurrency int, xrayUUID string) (string, error) {
 	selfPath, _ := os.Executable()
 	dir := filepath.Dir(selfPath)
 	configDir := filepath.Join(dir, "config")
 	_ = os.MkdirAll(configDir, 0755)
 
 	configPath := filepath.Join(configDir, "xray_client.json")
+
+	if xrayUUID == "" {
+		xrayUUID = "a0a0a0a0-0000-4000-8000-000000000001"
+	}
 
 	type User struct {
 		ID         string `json:"id"`
@@ -266,7 +284,7 @@ func (m *Manager) GenerateConfig(muxConcurrency int) (string, error) {
 							Address: "127.0.0.1",
 							Port:    m.relayPort,
 							Users: []User{
-								{ID: DefaultServerUUID, Encryption: "none"},
+								{ID: xrayUUID, Encryption: "none"},
 							},
 						},
 					},
@@ -287,7 +305,7 @@ func (m *Manager) GenerateConfig(muxConcurrency int) (string, error) {
 		return "", err
 	}
 
-	if err := os.WriteFile(configPath, data, 0644); err != nil {
+	if err := os.WriteFile(configPath, data, 0600); err != nil {
 		return "", err
 	}
 
@@ -295,13 +313,17 @@ func (m *Manager) GenerateConfig(muxConcurrency int) (string, error) {
 	return configPath, nil
 }
 
-func (m *Manager) GenerateServerConfig() (string, error) {
+func (m *Manager) GenerateServerConfig(xrayUUID string) (string, error) {
 	selfPath, _ := os.Executable()
 	dir := filepath.Dir(selfPath)
 	configDir := filepath.Join(dir, "config")
 	_ = os.MkdirAll(configDir, 0755)
 
 	configPath := filepath.Join(configDir, "xray_server.json")
+
+	if xrayUUID == "" {
+		xrayUUID = "a0a0a0a0-0000-4000-8000-000000000001"
+	}
 
 	type ClientUser struct {
 		ID string `json:"id"`
@@ -339,7 +361,7 @@ func (m *Manager) GenerateServerConfig() (string, error) {
 				Protocol: "vless",
 				Settings: &InboundSettings{
 					Clients: []ClientUser{
-						{ID: DefaultServerUUID},
+						{ID: xrayUUID},
 					},
 					Decryption: "none",
 				},
@@ -361,7 +383,7 @@ func (m *Manager) GenerateServerConfig() (string, error) {
 		return "", err
 	}
 
-	if err := os.WriteFile(configPath, data, 0644); err != nil {
+	if err := os.WriteFile(configPath, data, 0600); err != nil {
 		return "", err
 	}
 
@@ -369,7 +391,7 @@ func (m *Manager) GenerateServerConfig() (string, error) {
 	return configPath, nil
 }
 
-func (m *Manager) Start(muxConcurrency int) error {
+func (m *Manager) Start(muxConcurrency int, xrayUUID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -383,7 +405,7 @@ func (m *Manager) Start(muxConcurrency int) error {
 	}
 	m.xrayPath = xrayExe
 
-	cfgPath, err := m.GenerateConfig(muxConcurrency)
+	cfgPath, err := m.GenerateConfig(muxConcurrency, xrayUUID)
 	if err != nil {
 		return fmt.Errorf("failed to generate xray config: %w", err)
 	}
@@ -409,16 +431,15 @@ func (m *Manager) Start(muxConcurrency int) error {
 }
 
 // StartServerAuto launches Xray server if the target inbound is not already listening
-func (m *Manager) StartServerAuto() error {
+func (m *Manager) StartServerAuto(xrayUUID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	targetAddr := fmt.Sprintf("127.0.0.1:%d", m.targetPort)
 
-	// Check if already listening
 	conn, err := net.DialTimeout("tcp", targetAddr, 500*time.Millisecond)
 	if err == nil {
-		conn.Close()
+		_ = conn.Close()
 		m.log("[Xray Core] Detected active inbound on %s. Auto-launch skipped.", targetAddr)
 		return nil
 	}
@@ -427,11 +448,11 @@ func (m *Manager) StartServerAuto() error {
 
 	xrayExe, err := m.FindXrayExecutable()
 	if err != nil {
-		return fmt.Errorf("cannot find or download xray executable: %w", err)
+		return fmt.Errorf("cannot find or download verified xray executable: %w", err)
 	}
 	m.xrayPath = xrayExe
 
-	cfgPath, err := m.GenerateServerConfig()
+	cfgPath, err := m.GenerateServerConfig(xrayUUID)
 	if err != nil {
 		return fmt.Errorf("failed to generate xray server config: %w", err)
 	}
@@ -452,14 +473,14 @@ func (m *Manager) StartServerAuto() error {
 		time.Sleep(100 * time.Millisecond)
 		c, err := net.DialTimeout("tcp", targetAddr, 200*time.Millisecond)
 		if err == nil {
-			c.Close()
+			_ = c.Close()
 			ready = true
 			break
 		}
 	}
 
 	if ready {
-		m.log("[Xray Core] Server Xray is ACTIVE on %s (Protocol: VLESS/TCP, UUID: %s)", targetAddr, DefaultServerUUID)
+		m.log("[Xray Core] Server Xray is ACTIVE on %s (Protocol: VLESS/TCP)", targetAddr)
 	} else {
 		m.log("[Xray Core] Warning: Server Xray started (PID: %d) but port %s not yet ready.", cmd.Process.Pid, targetAddr)
 	}
@@ -479,7 +500,9 @@ func (m *Manager) Stop() {
 
 	if m.running.CompareAndSwap(true, false) {
 		if m.cmd != nil && m.cmd.Process != nil {
-			_ = m.cmd.Process.Kill()
+			if err := terminateProcessGracefully(m.cmd.Process); err != nil {
+				m.log("[Xray Core] Warning on termination: %v", err)
+			}
 		}
 		m.log("[Xray Core] Stopped.")
 	}

@@ -139,6 +139,11 @@ func (p *EndpointPool) PickEndpoint() *Endpoint {
 // SendPacket sends a packet to Google Apps Script. If the chosen endpoint fails or hits quota,
 // it automatically fails over to another healthy endpoint in the pool.
 func (p *EndpointPool) SendPacket(client *http.Client, packet Packet, preferred *Endpoint) (*ResponsePacket, *Endpoint, error) {
+	// Ensure RequestID is present on data packets for server deduplication
+	if packet.Data != "" && packet.RequestID == 0 {
+		packet.RequestID = uint64(time.Now().UnixNano())
+	}
+
 	now := time.Now().Unix()
 	target := preferred
 	if target == nil || !target.IsAvailable(now) {

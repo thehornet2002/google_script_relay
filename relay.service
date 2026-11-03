@@ -5,11 +5,13 @@ After=network.target
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/root/google_script
-ExecStart=/root/google_script/relay-linux-amd64 -mode server -config /root/google_script/server_config.json
+WorkingDirectory=/opt/relay
+ExecStart=/opt/relay/relay -mode server -config /opt/relay/config/server_config.json
 Restart=always
 RestartSec=3
 LimitNOFILE=65535
+NoNewPrivileges=true
+PrivateTmp=true
 
 [Install]
 WantedBy=multi-user.target
