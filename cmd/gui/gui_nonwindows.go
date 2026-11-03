@@ -58,6 +58,7 @@ func (a *NonWindowsApp) init() {
 		Mode:       "client",
 		ListenAddr: "127.0.0.1:10800",
 		Token:      "",
+		XrayUUID:   "e2a4a9c8-7c8b-4a5e-9e2a-1a2b3c4d5e6f",
 		SocksPort:  10808,
 		HttpPort:   10809,
 		StartXray:  true,

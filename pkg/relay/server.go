@@ -436,6 +436,8 @@ func (s *Server) handleAdminRequest(w http.ResponseWriter, p Packet) {
 	case "get_tuning":
 		t := s.GetTuning()
 		res.Tuning = &t
+		res.XrayUUID = s.cfg.XrayUUID
+		res.Uptime = int64(time.Since(s.startTime).Seconds())
 	case "set_tuning":
 		if req.Tuning != nil {
 			if err := s.SetTuning(*req.Tuning); err != nil {
@@ -473,6 +475,7 @@ func (s *Server) handleAdminRequest(w http.ResponseWriter, p Packet) {
 	case "status":
 		t := s.GetTuning()
 		res.Tuning = &t
+		res.XrayUUID = s.cfg.XrayUUID
 		res.Uptime = int64(time.Since(s.startTime).Seconds())
 	default:
 		res.Success = false

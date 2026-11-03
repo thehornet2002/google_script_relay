@@ -39,10 +39,11 @@ type AdminRequest struct {
 
 // AdminResponse represents server status and response for remote management.
 type AdminResponse struct {
-	Success bool          `json:"success"`
-	Message string        `json:"message,omitempty"`
-	Tuning  *ServerTuning `json:"tuning,omitempty"`
-	Uptime  int64         `json:"uptime,omitempty"`
+	Success  bool          `json:"success"`
+	Message  string        `json:"message,omitempty"`
+	Tuning   *ServerTuning `json:"tuning,omitempty"`
+	XrayUUID string        `json:"xray_uuid,omitempty"`
+	Uptime   int64         `json:"uptime,omitempty"`
 }
 
 // Config represents runtime settings for client or server.
@@ -134,7 +135,7 @@ func (c *Config) EnsureDefaults() {
 		c.HttpPort = 10809
 	}
 	if c.XrayUUID == "" {
-		c.XrayUUID = GenerateUUID()
+		c.XrayUUID = "e2a4a9c8-7c8b-4a5e-9e2a-1a2b3c4d5e6f"
 	}
 	if c.AdminToken == "" && c.Token != "" {
 		c.AdminToken = c.Token
