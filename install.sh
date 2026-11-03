@@ -108,6 +108,27 @@ fi
 
 chmod +x "$INSTALL_DIR/relay"
 
+# 7.1 Ensure Xray binary is present in bin/
+if [ ! -f "$BIN_DIR/xray" ] && ! command -v xray &>/dev/null; then
+    echo -e "${BLUE}[*] Installing official Xray-core (${RELAY_ARCH})...${NC}"
+    XRAY_ZIP="Xray-linux-64.zip"
+    if [ "$RELAY_ARCH" = "arm64" ]; then
+        XRAY_ZIP="Xray-linux-arm64-v8a.zip"
+    elif [ "$RELAY_ARCH" = "armv7" ]; then
+        XRAY_ZIP="Xray-linux-arm32-v7a.zip"
+    fi
+    XRAY_URL="https://github.com/XTLS/Xray-core/releases/download/v1.8.24/${XRAY_ZIP}"
+    curl -sL --retry 3 -o "/tmp/xray.zip" "$XRAY_URL" && {
+        if command -v unzip &>/dev/null; then
+            unzip -q -o "/tmp/xray.zip" xray -d "$BIN_DIR/" || true
+        else
+            busybox unzip -q "/tmp/xray.zip" xray -d "$BIN_DIR/" 2>/dev/null || true
+        fi
+        rm -f "/tmp/xray.zip"
+        chmod +x "$BIN_DIR/xray" 2>/dev/null || true
+    }
+fi
+
 # 8. Write configuration file
 cat << EOF > "$CONFIG_DIR/server_config.json"
 {

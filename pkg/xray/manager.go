@@ -24,7 +24,7 @@ import (
 const (
 	PinnedXrayVersion = "v1.8.24"
 	// Official release SHA256 for Xray-linux-64.zip v1.8.24
-	PinnedXrayLinuxAmd64SHA256 = "6571583d7a8e2cbce1b22e1b12b54dca7cb4b6e8a0fcb51a0210e309cb6f4770"
+	PinnedXrayLinuxAmd64SHA256 = "47a860787e823474a358d6bca536547df6dd08b69c6de482ea92a9e7e8f8969c"
 )
 
 type Manager struct {
