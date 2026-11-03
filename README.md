@@ -100,45 +100,34 @@
 
 ## 🚀 راهنمای راه‌اندازی در ۳ گام
 
-### گام ۱: راه‌اندازی سرور VPS
+### گام ۱: راه‌اندازی خودکار سرور VPS (با اسکریپت تک‌خطی)
 
-1. از بخش [Releases](https://github.com/thehornet2002/google_script_relay/releases/latest)، بسته **`relay-server-linux-amd64.tar.gz`** (یا نسخه arm64 برای سرورهای ARM) را دانلود کرده و به سرور منتقل کنید:
-   ```bash
-   mkdir -p /opt/relay
-   cd /opt/relay
-   tar -xzvf relay-server-linux-amd64.tar.gz
-   chmod +x relay
-   ```
+دستور زیر را روی سرور لینوکس (Ubuntu / Debian / CentOS) اجرا کنید:
 
-2. تولید توکن امن و UUID تصادفی:
-   ```bash
-   ./relay -mode gen-token
-   ```
-   مقادیر خروجی (Secure Token و Xray UUID) را کپی کرده و در `config/server_config.json` وارد کنید.
+```bash
+bash <(curl -sL https://raw.githubusercontent.com/thehornet2002/google_script_relay/main/install.sh)
+```
 
-3. راه‌اندازی معکوس امن با HTTPS (توصیه شده):
-   برای حفاظت از داده‌ها بین گوگل و سرور شما، یک Reverse Proxy با گواهی‌نامه رایگان SSL (مانند Caddy) نصب کنید:
-   ```caddy
-   # /etc/caddy/Caddyfile
-   relay.yourdomain.com {
-       reverse_proxy 127.0.0.1:8888
-   }
-   ```
-   و در فایروال فقط پورت‌های ۴۴۳ و ۲۲ را باز کنید:
-   ```bash
-   sudo ufw allow 22/tcp
-   sudo ufw allow 443/tcp
-   sudo ufw enable
-   ```
+**اسکریپت به صورت خودکار:**
+- پورت ارتباطی سرور (پیش‌فرض: `8888`) را از شما می‌پرسد.
+- معماری سرور (x86_64 یا ARM64) را تشخیص می‌دهد و باینری رسمی را دریافت می‌کند.
+- توکن‌های امن ضدحدس و شناسه UUID اختصاصی تولید می‌کند.
+- فایل تنظیمات امن را با سطح دسترسی `chmod 600` در `/opt/relay/config/server_config.json` ذخیره می‌کند.
+- فایروال سرور (ufw) را برای پورت انتخابی باز می‌کند.
+- سرویس پس‌زمینه دائمی systemd را نصب و فعال می‌کند.
+- اینباند Xray سرور روی پورت ۱۰001 را به طور خودکار فعال می‌سازد.
+- در پایان تمام اطلاعات مورد نیاز برای تنظیم گوگل اسکریپت و کلاینت را تحویل می‌دهد.
 
-4. نصب و اجرای سرویس دائمی systemd:
-   ```bash
-   sudo cp relay.service /etc/systemd/system/relay.service
-   sudo systemctl daemon-reload
-   sudo systemctl enable --now relay
-   sudo systemctl status relay
-   ```
-   *(سرور به طور خودکار اینباند Xray روی پورت ۱۰001 را راه‌اندازی می‌کند).*
+---
+
+*(اختیاری - راه‌اندازی معکوس با دامنه و SSL):*  
+در صورت داشتن دامنه شخصی، برای رمزنگاری مسیر گوگل تا سرور با Caddy:
+```caddy
+# /etc/caddy/Caddyfile
+relay.yourdomain.com {
+    reverse_proxy 127.0.0.1:8888
+}
+```
 
 ---
 
