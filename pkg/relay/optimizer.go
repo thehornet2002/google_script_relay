@@ -349,7 +349,7 @@ func (o *Optimizer) RunOptimization(ctx context.Context, profile ProfileType, on
 			Action: "set_tuning",
 			Tuning: &cand.ServerTuning,
 		}
-		adminResp, err := SendAdminCommand(o.httpClient, o.pool, o.adminToken, adminReq)
+		adminResp, err := SendAdminCommand(o.httpClient, o.pool, o.token, o.adminToken, adminReq)
 		if err != nil || (adminResp != nil && !adminResp.Success) {
 			errMsg := "unknown"
 			if err != nil {
@@ -473,11 +473,11 @@ func (o *Optimizer) RunOptimization(ctx context.Context, profile ProfileType, on
 		o.log("═════════════════════════════════════════════════════════════════════")
 
 		// Commit optimal tuning permanently to VPS
-		_, _ = SendAdminCommand(o.httpClient, o.pool, o.adminToken, AdminRequest{
+		_, _ = SendAdminCommand(o.httpClient, o.pool, o.token, o.adminToken, AdminRequest{
 			Action: "set_tuning",
 			Tuning: &bestCand.ServerTuning,
 		})
-		_, _ = SendAdminCommand(o.httpClient, o.pool, o.adminToken, AdminRequest{
+		_, _ = SendAdminCommand(o.httpClient, o.pool, o.token, o.adminToken, AdminRequest{
 			Action: "save_config",
 		})
 		_ = o.client.SetTuning(bestCand.ClientTuning)

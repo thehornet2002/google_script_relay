@@ -842,12 +842,13 @@ func fetchVPSConfig() {
 	}
 
 	go func() {
+		dataToken := getControlText(hEditToken)
 		admToken := getControlText(hEditAdminToken)
 		if admToken == "" {
-			admToken = getControlText(hEditToken)
+			admToken = dataToken
 		}
 		appendLog("[Admin] Querying VPS server configuration over Google tunnel...")
-		res, err := relay.SendAdminCommand(rc.GetHTTPClient(), rc.GetEndpointPool(), admToken, relay.AdminRequest{
+		res, err := relay.SendAdminCommand(rc.GetHTTPClient(), rc.GetEndpointPool(), dataToken, admToken, relay.AdminRequest{
 			Action: "get_tuning",
 		})
 		if err != nil {
@@ -886,12 +887,13 @@ func pushVPSTuning() {
 	rc.SetTuning(*cfg.ClientTuning)
 
 	go func() {
+		dataToken := getControlText(hEditToken)
 		admToken := getControlText(hEditAdminToken)
 		if admToken == "" {
-			admToken = getControlText(hEditToken)
+			admToken = dataToken
 		}
 		appendLog("[Admin] Pushing new tuning parameters to VPS...")
-		res, err := relay.SendAdminCommand(rc.GetHTTPClient(), rc.GetEndpointPool(), admToken, relay.AdminRequest{
+		res, err := relay.SendAdminCommand(rc.GetHTTPClient(), rc.GetEndpointPool(), dataToken, admToken, relay.AdminRequest{
 			Action: "set_tuning",
 			Tuning: &tuning,
 		})
@@ -899,7 +901,7 @@ func pushVPSTuning() {
 			appendLog(fmt.Sprintf("[Admin] Error pushing tuning to VPS: %v", err))
 			return
 		}
-		_, _ = relay.SendAdminCommand(rc.GetHTTPClient(), rc.GetEndpointPool(), admToken, relay.AdminRequest{
+		_, _ = relay.SendAdminCommand(rc.GetHTTPClient(), rc.GetEndpointPool(), dataToken, admToken, relay.AdminRequest{
 			Action: "save_config",
 		})
 		appendLog(fmt.Sprintf("[Admin] VPS tuning updated and persisted: %s", res.Message))

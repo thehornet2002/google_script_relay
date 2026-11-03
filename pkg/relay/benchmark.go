@@ -264,7 +264,14 @@ func RunSpeedBenchmark(client *http.Client, pool *EndpointPool, token string, on
 }
 
 // SendAdminCommand sends a management command to the VPS over the Google Script tunnel
-func SendAdminCommand(client *http.Client, pool *EndpointPool, adminToken string, req AdminRequest) (*AdminResponse, error) {
+func SendAdminCommand(client *http.Client, pool *EndpointPool, dataToken, adminToken string, req AdminRequest) (*AdminResponse, error) {
+	if adminToken == "" {
+		adminToken = dataToken
+	}
+	if dataToken == "" {
+		dataToken = adminToken
+	}
+
 	raw, err := json.Marshal(req)
 	if err != nil {
 		return nil, err
@@ -272,7 +279,7 @@ func SendAdminCommand(client *http.Client, pool *EndpointPool, adminToken string
 
 	pkt := Packet{
 		SessionID:  "__admin__",
-		Token:      adminToken,
+		Token:      dataToken,
 		AdminToken: adminToken,
 		Data:       base64.StdEncoding.EncodeToString(raw),
 	}
